@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Helpdesk - Register</title>
+    <link rel="stylesheet" href="styles.css">
+    <!-- Firebase SDKs -->
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+</head>
+<body>
+    <div class="auth-container">
+        <div class="auth-card">
+            <div class="auth-header">
+                <div class="auth-icon">
+                    <span class="auth-icon-badge">✓</span>
+                </div>
+                <h1>Create Account</h1>
+                <p class="subtitle">Join AI Helpdesk to get started</p>
+            </div>
+            
+            <div id="error-message" class="alert alert-error" style="display: none;"></div>
+            <div id="success-message" class="alert alert-success" style="display: none;"></div>
+            
+            <form id="register-form">
+                <div class="form-group">
+                    <label for="register-email">Email Address</label>
+                    <input type="email" id="register-email" name="email" required placeholder="your.email@example.com">
+                </div>
+                
+                <div class="form-group">
+                    <label for="register-password">Password</label>
+                    <input type="password" id="register-password" name="password" required minlength="6" placeholder="Minimum 6 characters">
+                </div>
+                
+                <div class="form-group">
+                    <label for="register-role">Account Type</label>
+                    <select id="register-role" name="role" required>
+                        <option value="employee" selected>Employee (Default)</option>
+                        <option value="admin">Administrator</option>
+                    </select>
+                </div>
+                
+                <div class="form-group" id="admin-code-group" style="display: none;">
+                    <label for="admin-code">Admin Access Code</label>
+                    <input type="password" id="admin-code" name="admin_code" placeholder="Enter admin access code" autocomplete="off">
+                    <small style="display: block; margin-top: 4px; color: var(--text-tertiary); font-size: 12px;">
+                        Admin access code is required to create an administrator account.
+                    </small>
+                </div>
+                
+                <button type="submit" class="btn btn-primary" style="width: 100%;">Create Account</button>
+            </form>
+            
+            <div class="auth-footer">
+                <p>Already have an account? <a href="login.html">Sign in here</a></p>
+                <p style="margin-top: 12px;"><a href="index.html">← Back to Home</a></p>
+            </div>
+        </div>
+    </div>
+    
+    <script src="firebase-config.js"></script>
+    <script src="register.js"></script>
+</body>
+</html>

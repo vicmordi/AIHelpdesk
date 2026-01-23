@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Helpdesk - Dashboard</title>
+    <link rel="stylesheet" href="styles.css">
+    <!-- Firebase SDKs -->
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+</head>
+<body>
+    <nav class="top-nav">
+        <a href="#" class="nav-brand">AI Helpdesk</a>
+        <div class="nav-actions">
+            <button id="messages-icon-btn" class="btn btn-icon messages-icon" title="Messages">
+                💬
+                <span class="notification-badge" id="header-unread-badge" style="display: none;">0</span>
+            </button>
+            <div class="user-info">
+                <div class="user-avatar" id="user-avatar">U</div>
+                <span id="user-email"></span>
+            </div>
+            <button id="logout-btn" class="btn btn-secondary btn-icon">Logout</button>
+        </div>
+    </nav>
+    
+    <div class="container">
+        <div class="page-header">
+            <h1>My Support Tickets</h1>
+            <p class="subtitle">View your tickets and submit new requests</p>
+        </div>
+        
+        <div id="error-message" class="alert alert-error" style="display: none;"></div>
+        <div id="success-message" class="alert alert-success" style="display: none;"></div>
+        
+        <div class="tabs">
+            <button class="tab-btn active" data-tab="my-tickets">
+                My Tickets
+                <span class="notification-badge" id="unread-badge" style="display: none;">0</span>
+            </button>
+            <button class="tab-btn" data-tab="submit">Submit New Ticket</button>
+        </div>
+        
+        <!-- My Tickets Tab (Default) -->
+        <div id="my-tickets-tab" class="tab-content active">
+            <!-- Statistics Cards -->
+            <div class="stats-grid" id="stats-grid">
+                <div class="stat-card" data-filter="all" onclick="filterTicketsByStat('all')">
+                    <div class="stat-icon">📋</div>
+                    <div class="stat-value" id="stat-total">0</div>
+                    <div class="stat-label">All Tickets</div>
+                </div>
+                <div class="stat-card" data-filter="resolved" onclick="filterTicketsByStat('resolved')">
+                    <div class="stat-icon">✅</div>
+                    <div class="stat-value" id="stat-resolved">0</div>
+                    <div class="stat-label">Resolved</div>
+                </div>
+                <div class="stat-card" data-filter="escalated" onclick="filterTicketsByStat('escalated')">
+                    <div class="stat-icon">⚠️</div>
+                    <div class="stat-value" id="stat-escalated">0</div>
+                    <div class="stat-label">Escalated</div>
+                </div>
+                <div class="stat-card" data-filter="in_progress" onclick="filterTicketsByStat('in_progress')">
+                    <div class="stat-icon">🔄</div>
+                    <div class="stat-value" id="stat-in-progress">0</div>
+                    <div class="stat-label">In Progress</div>
+                </div>
+            </div>
+            
+            <div class="card">
+                <div class="card-header">
+                    <h2 id="tickets-list-title">My Tickets</h2>
+                    <button class="btn btn-primary btn-sm" onclick="document.querySelector('[data-tab=\"submit\"]').click()">+ New Ticket</button>
+                </div>
+                <div class="card-body">
+                    <div id="my-tickets-list" class="tickets-list">
+                        <div class="loading">Loading tickets...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Submit Ticket Tab -->
+        <div id="submit-tab" class="tab-content">
+            <div class="card">
+                <div class="card-header">
+                    <h2>Create Support Ticket</h2>
+                </div>
+                <div class="card-body">
+                    <form id="ticket-form">
+                        <div class="form-group">
+                            <label for="ticket-message">Describe Your Issue</label>
+                            <textarea id="ticket-message" name="message" rows="8" required placeholder="Please provide a detailed description of your issue. Our AI will analyze it and provide an immediate solution if possible, or escalate it to our support team."></textarea>
+                        </div>
+                        
+                        <button type="submit" class="btn btn-primary" id="submit-btn">Submit Ticket</button>
+                    </form>
+                </div>
+            </div>
+            
+            <div id="ticket-response" class="card" style="display: none;">
+                <div class="card-header">
+                    <h2>Ticket Response</h2>
+                </div>
+                <div class="card-body">
+                    <div id="response-content"></div>
+                </div>
+            </div>
+        </div>
+        
+    </div>
+    
+    <!-- Messages Dropdown Modal -->
+    <div id="messages-modal" class="modal-overlay">
+        <div class="modal" style="max-width: 600px;">
+            <div class="modal-header">
+                <h2>Messages</h2>
+                <button class="modal-close" onclick="closeMessagesModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="messages-tickets-list" class="tickets-list">
+                    <div class="loading">Loading messages...</div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeMessagesModal()">Close</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Ticket Detail Modal -->
+    <div id="ticket-modal" class="modal-overlay">
+        <div class="modal" style="max-width: 900px;">
+            <div class="modal-header">
+                <h2 id="ticket-modal-title">Ticket Details</h2>
+                <button class="modal-close" onclick="closeTicketModal()">&times;</button>
+            </div>
+            <div class="modal-body" id="ticket-modal-body">
+                <!-- Ticket details will be loaded here -->
+            </div>
+            <div class="message-input-area" id="ticket-message-input" style="display: none;">
+                <form id="ticket-message-form" class="message-input-form">
+                    <input type="hidden" id="current-ticket-id">
+                    <textarea id="ticket-message-text" placeholder="Type your reply..." required></textarea>
+                    <button type="submit" class="btn btn-primary">Send</button>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeTicketModal()">Close</button>
+            </div>
+        </div>
+    </div>
+    
+    <script src="firebase-config.js"></script>
+    <script src="submit-ticket.js"></script>
+</body>
+</html>

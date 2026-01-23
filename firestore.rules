@@ -1,0 +1,53 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper function to check if user is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    // Helper function to check if user is admin
+    function isAdmin() {
+      return isAuthenticated() && 
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+    
+    // Helper function to check if user owns the resource
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    
+    // Users collection
+    match /users/{userId} {
+      // Users can read their own data
+      allow read: if isOwner(userId);
+      // Only admins can write to users (or the user themselves during registration)
+      // During registration, users can create their own document with role "employee" or "admin" (if validated by backend)
+      allow write: if isAdmin() || (isOwner(userId) && request.resource.data.keys().hasAll(['uid', 'email', 'role']));
+    }
+    
+    // Knowledge Base collection
+    match /knowledge_base/{articleId} {
+      // Only admins can read and write knowledge base articles
+      allow read, write: if isAdmin();
+    }
+    
+    // Tickets collection
+    match /tickets/{ticketId} {
+      // Users can read their own tickets
+      allow read: if isOwner(resource.data.userId) || isAdmin();
+      // Users can create tickets (but cannot modify AI-generated fields)
+      allow create: if isAuthenticated() && 
+                       request.resource.data.userId == request.auth.uid &&
+                       request.resource.data.keys().hasAll(['userId', 'message', 'status', 'createdAt']);
+      // Users can update their own tickets to add messages (only messages array)
+      // Admins can update any ticket (including status)
+      allow update: if isAdmin() || 
+                      (isOwner(resource.data.userId) && 
+                       request.resource.data.diff(resource.data).affectedKeys().hasOnly(['messages']));
+      // Only admins can delete tickets
+      allow delete: if isAdmin();
+    }
+  }
+}

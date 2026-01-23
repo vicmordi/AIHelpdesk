@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Helpdesk - Admin Dashboard</title>
+    <link rel="stylesheet" href="styles.css">
+    <!-- Firebase SDKs -->
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+</head>
+<body>
+    <nav class="top-nav">
+        <a href="#" class="nav-brand">AI Helpdesk</a>
+        <div class="nav-actions">
+            <button id="messages-icon-btn" class="btn btn-icon messages-icon" title="Messages">
+                💬
+                <span class="notification-badge" id="header-unread-badge" style="display: none;">0</span>
+            </button>
+            <div class="user-info">
+                <div class="user-avatar" id="user-avatar">A</div>
+                <span id="user-email"></span>
+            </div>
+            <button id="logout-btn" class="btn btn-secondary btn-icon">Logout</button>
+        </div>
+    </nav>
+    
+    <div class="container">
+        <div class="page-header">
+            <h1>Admin Dashboard</h1>
+            <p class="subtitle">Manage knowledge base and review escalated tickets</p>
+        </div>
+        
+        <div id="error-message" class="alert alert-error" style="display: none;"></div>
+        <div id="success-message" class="alert alert-success" style="display: none;"></div>
+        
+        <div class="tabs">
+            <button class="tab-btn active" data-tab="knowledge-base">
+                Knowledge Base
+                <span class="stat-badge" id="kb-count" style="display: none;">0</span>
+            </button>
+            <button class="tab-btn" data-tab="all-tickets">
+                All Tickets
+                <span class="stat-badge" id="all-tickets-count" style="display: none;">0</span>
+                <span class="notification-badge" id="all-tickets-unread" style="display: none;">0</span>
+            </button>
+            <button class="tab-btn" data-tab="escalated-tickets">
+                Escalated Tickets
+                <span class="stat-badge" id="escalated-count" style="display: none;">0</span>
+                <span class="notification-badge" id="escalated-unread" style="display: none;">0</span>
+            </button>
+        </div>
+        
+        <!-- Knowledge Base Tab -->
+        <div id="knowledge-base-tab" class="tab-content active">
+            <div class="card">
+                <div class="card-header">
+                    <h2>Add Knowledge Base Article</h2>
+                </div>
+                <div class="card-body">
+                    <form id="kb-form">
+                        <div class="form-group">
+                            <label for="kb-title">Article Title</label>
+                            <input type="text" id="kb-title" name="title" required placeholder="Enter article title">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="kb-content">Article Content</label>
+                            <textarea id="kb-content" name="content" rows="10" required placeholder="Enter the article content. This will be used by AI to help resolve support tickets."></textarea>
+                        </div>
+                        
+                        <button type="submit" class="btn btn-primary">Save Article</button>
+                    </form>
+                </div>
+            </div>
+            
+            <div class="card">
+                <div class="card-header">
+                    <h2>Knowledge Base Articles</h2>
+                </div>
+                <div class="card-body">
+                    <div id="articles-list" class="articles-list">
+                        <div class="loading">Loading articles...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- All Tickets Tab -->
+        <div id="all-tickets-tab" class="tab-content">
+            <!-- Statistics Cards -->
+            <div class="stats-grid" id="stats-grid">
+                <div class="stat-card" data-filter="all" onclick="filterTicketsByStat('all')">
+                    <div class="stat-icon">📋</div>
+                    <div class="stat-value" id="stat-total">0</div>
+                    <div class="stat-label">All Tickets</div>
+                </div>
+                <div class="stat-card" data-filter="resolved" onclick="filterTicketsByStat('resolved')">
+                    <div class="stat-icon">✅</div>
+                    <div class="stat-value" id="stat-resolved">0</div>
+                    <div class="stat-label">Resolved</div>
+                </div>
+                <div class="stat-card" data-filter="escalated" onclick="filterTicketsByStat('escalated')">
+                    <div class="stat-icon">⚠️</div>
+                    <div class="stat-value" id="stat-escalated">0</div>
+                    <div class="stat-label">Escalated</div>
+                </div>
+                <div class="stat-card" data-filter="in_progress" onclick="filterTicketsByStat('in_progress')">
+                    <div class="stat-icon">🔄</div>
+                    <div class="stat-value" id="stat-in-progress">0</div>
+                    <div class="stat-label">In Progress</div>
+                </div>
+            </div>
+            
+            <div class="card">
+                <div class="card-header">
+                    <h2 id="tickets-list-title">All Tickets</h2>
+                    <div style="display: flex; gap: 12px; align-items: center;">
+                        <select id="status-filter" style="padding: 8px 12px; border: 1px solid var(--border-color); border-radius: var(--radius-sm); background: var(--bg-primary); color: var(--text-primary);">
+                            <option value="all">All Statuses</option>
+                            <option value="pending">Pending</option>
+                            <option value="in_progress">In Progress</option>
+                            <option value="resolved">Resolved</option>
+                            <option value="escalated">Escalated</option>
+                            <option value="auto_resolved">Auto-Resolved</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div id="all-tickets-list" class="tickets-list">
+                        <div class="loading">Loading tickets...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Escalated Tickets Tab -->
+        <div id="escalated-tickets-tab" class="tab-content">
+            <div class="card">
+                <div class="card-header">
+                    <h2>Escalated Tickets</h2>
+                    <span class="badge badge-warning" id="escalated-badge" style="display: none;">0 Pending</span>
+                </div>
+                <div class="card-body">
+                    <div id="escalated-tickets-list" class="tickets-list">
+                        <div class="loading">Loading tickets...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Article View/Edit Modal -->
+    <div id="article-modal" class="modal-overlay">
+        <div class="modal">
+            <div class="modal-header">
+                <h2 id="article-modal-title">Knowledge Base Article</h2>
+                <button class="modal-close" onclick="closeArticleModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <!-- View Mode (Default) -->
+                <div id="article-view-mode">
+                    <div class="form-group">
+                        <label>Article Title</label>
+                        <div id="article-view-title" class="article-view-text"></div>
+                    </div>
+                    <div class="form-group">
+                        <label>Article Content</label>
+                        <div id="article-view-content" class="article-view-text"></div>
+                    </div>
+                    <div class="form-group">
+                        <label>Metadata</label>
+                        <div id="article-view-meta" class="article-view-text" style="font-size: 12px; color: var(--text-tertiary);"></div>
+                    </div>
+                </div>
+                
+                <!-- Edit Mode (Hidden by default) -->
+                <div id="article-edit-mode" style="display: none;">
+                    <form id="edit-article-form">
+                        <input type="hidden" id="edit-article-id">
+                        <div class="form-group">
+                            <label for="edit-article-title">Article Title</label>
+                            <input type="text" id="edit-article-title" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="edit-article-content">Article Content</label>
+                            <textarea id="edit-article-content" rows="12" required></textarea>
+                        </div>
+                    </form>
+                </div>
+            </div>
+            <div class="modal-footer" id="article-modal-footer">
+                <!-- View mode buttons -->
+                <div id="article-view-buttons">
+                    <button class="btn btn-primary" onclick="switchToEditMode()">Edit</button>
+                    <button class="btn btn-secondary" onclick="closeArticleModal()">Close</button>
+                </div>
+                <!-- Edit mode buttons -->
+                <div id="article-edit-buttons" style="display: none;">
+                    <button class="btn btn-secondary" onclick="cancelEditMode()">Cancel</button>
+                    <button class="btn btn-primary" onclick="saveArticleEdit()">Save Changes</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Messages Dropdown Modal -->
+    <div id="messages-modal" class="modal-overlay">
+        <div class="modal" style="max-width: 600px;">
+            <div class="modal-header">
+                <h2>Messages</h2>
+                <button class="modal-close" onclick="closeMessagesModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="messages-tickets-list" class="tickets-list">
+                    <div class="loading">Loading messages...</div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeMessagesModal()">Close</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Ticket Detail Modal -->
+    <div id="ticket-modal" class="modal-overlay">
+        <div class="modal" style="max-width: 900px;">
+            <div class="modal-header">
+                <h2 id="ticket-modal-title">Ticket Details</h2>
+                <button class="modal-close" onclick="closeTicketModal()">&times;</button>
+            </div>
+            <div class="modal-body" id="ticket-modal-body">
+                <!-- Ticket details will be loaded here -->
+            </div>
+            <div class="message-input-area" id="ticket-message-input" style="display: none;">
+                <form id="ticket-message-form" class="message-input-form">
+                    <input type="hidden" id="current-ticket-id">
+                    <textarea id="ticket-message-text" placeholder="Type your message..." required></textarea>
+                    <button type="submit" class="btn btn-primary">Send</button>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeTicketModal()">Close</button>
+            </div>
+        </div>
+    </div>
+    
+    <script src="firebase-config.js"></script>
+    <script src="admin.js"></script>
+</body>
+</html>

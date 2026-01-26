@@ -48,7 +48,7 @@ async def verify_admin(decoded_token: dict = Depends(verify_token)) -> dict:
     """
     uid = decoded_token.get("uid")
     
-    # Get user role from Firestore
+    # Get user role from Firestore (lazy initialization)
     from firebase_admin import firestore
     db = firestore.client()
     user_ref = db.collection("users").document(uid)

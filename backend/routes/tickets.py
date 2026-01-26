@@ -12,10 +12,12 @@ from firebase_admin import firestore
 from config import OPENAI_API_KEY
 from middleware import verify_token, verify_admin
 
-# Get Firestore client
-db = firestore.client()
-
 router = APIRouter()
+
+
+def get_db():
+    """Lazy initialization of Firestore client"""
+    return firestore.client()
 
 # Initialize OpenAI client
 openai_client = OpenAI(api_key=OPENAI_API_KEY)
@@ -54,6 +56,9 @@ async def create_ticket(
     Create a new support ticket and attempt AI resolution
     """
     try:
+        # Get Firestore client (lazy initialization)
+        db = get_db()
+        
         uid = decoded_token.get("uid")
         
         # Fetch all knowledge base articles
@@ -346,6 +351,9 @@ async def get_all_tickets(decoded_token: dict = Depends(verify_admin)):
     Get all tickets (Admin only)
     """
     try:
+        # Get Firestore client (lazy initialization)
+        db = get_db()
+        
         tickets_ref = db.collection("tickets")
         tickets = tickets_ref.stream()
         
@@ -375,6 +383,9 @@ async def get_my_tickets(decoded_token: dict = Depends(verify_token)):
     Get tickets for the current user
     """
     try:
+        # Get Firestore client (lazy initialization)
+        db = get_db()
+        
         uid = decoded_token.get("uid")
         
         tickets_ref = db.collection("tickets").where("userId", "==", uid)
@@ -407,6 +418,9 @@ async def get_escalated_tickets(decoded_token: dict = Depends(verify_admin)):
     Uses the escalated field, not status, since escalation is a historical state
     """
     try:
+        # Get Firestore client (lazy initialization)
+        db = get_db()
+        
         # Query by escalated field instead of status
         # This ensures we get all tickets that were ever escalated, regardless of current status
         # Also query by status for backward compatibility with old tickets
@@ -476,6 +490,9 @@ async def add_message_to_ticket(
     - Admins can send messages as "admin" on any ticket
     """
     try:
+        # Get Firestore client (lazy initialization)
+        db = get_db()
+        
         uid = decoded_token.get("uid")
         
         # Get user role
@@ -566,6 +583,9 @@ async def mark_messages_as_read(
     - Admins can mark messages as read on any ticket
     """
     try:
+        # Get Firestore client (lazy initialization)
+        db = get_db()
+        
         uid = decoded_token.get("uid")
         
         # Get user role
@@ -636,6 +656,9 @@ async def update_ticket_status(
     Changing status does NOT change the escalated flag.
     """
     try:
+        # Get Firestore client (lazy initialization)
+        db = get_db()
+        
         allowed_statuses = ["pending", "in_progress", "resolved", "escalated", "auto_resolved"]
         new_status = status_update.get("status")
         

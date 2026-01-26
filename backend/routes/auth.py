@@ -10,10 +10,12 @@ from firebase_admin import auth as firebase_auth, firestore
 from config import ADMIN_ACCESS_CODE
 from middleware import verify_token
 
-# Get Firestore client
-db = firestore.client()
-
 router = APIRouter()
+
+
+def get_db():
+    """Lazy initialization of Firestore client"""
+    return firestore.client()
 
 
 class LoginRequest(BaseModel):
@@ -57,6 +59,9 @@ async def register(request: RegisterRequest, decoded_token: dict = Depends(verif
     try:
         uid = decoded_token.get("uid")
         email = decoded_token.get("email") or request.email
+        
+        # Get Firestore client (lazy initialization)
+        db = get_db()
         
         # Check if user document already exists
         user_ref = db.collection("users").document(uid)
@@ -116,6 +121,9 @@ async def get_current_user(decoded_token: dict = Depends(verify_token)):
     Get current user information
     """
     uid = decoded_token.get("uid")
+    
+    # Get Firestore client (lazy initialization)
+    db = get_db()
     
     # Get user from Firestore
     user_ref = db.collection("users").document(uid)

@@ -9,10 +9,12 @@ from datetime import datetime
 from firebase_admin import firestore
 from middleware import verify_admin
 
-# Get Firestore client
-db = firestore.client()
-
 router = APIRouter()
+
+
+def get_db():
+    """Lazy initialization of Firestore client"""
+    return firestore.client()
 
 
 class KnowledgeBaseArticle(BaseModel):
@@ -36,6 +38,9 @@ async def create_article(
     Create a new knowledge base article (Admin only)
     """
     try:
+        # Get Firestore client (lazy initialization)
+        db = get_db()
+        
         article_data = {
             "title": article.title,
             "content": article.content,
@@ -61,6 +66,9 @@ async def get_articles(decoded_token: dict = Depends(verify_admin)):
     Get all knowledge base articles (Admin only)
     """
     try:
+        # Get Firestore client (lazy initialization)
+        db = get_db()
+        
         articles_ref = db.collection("knowledge_base")
         articles = articles_ref.stream()
         
@@ -92,6 +100,9 @@ async def update_article(
     Update a knowledge base article (Admin only)
     """
     try:
+        # Get Firestore client (lazy initialization)
+        db = get_db()
+        
         article_ref = db.collection("knowledge_base").document(article_id)
         article_doc = article_ref.get()
         
@@ -130,6 +141,9 @@ async def delete_article(
     Delete a knowledge base article (Admin only)
     """
     try:
+        # Get Firestore client (lazy initialization)
+        db = get_db()
+        
         article_ref = db.collection("knowledge_base").document(article_id)
         article_doc = article_ref.get()
         

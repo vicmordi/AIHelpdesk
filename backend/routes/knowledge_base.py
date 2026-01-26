@@ -6,8 +6,11 @@ from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from typing import List, Optional
 from datetime import datetime
-from config import db
+from firebase_admin import firestore
 from middleware import verify_admin
+
+# Get Firestore client
+db = firestore.client()
 
 router = APIRouter()
 

@@ -8,8 +8,12 @@ from typing import List, Optional
 from datetime import datetime
 from openai import OpenAI
 import json
-from config import db, OPENAI_API_KEY
+from firebase_admin import firestore
+from config import OPENAI_API_KEY
 from middleware import verify_token, verify_admin
+
+# Get Firestore client
+db = firestore.client()
 
 router = APIRouter()
 
@@ -475,7 +479,6 @@ async def add_message_to_ticket(
         uid = decoded_token.get("uid")
         
         # Get user role
-        from config import db
         user_ref = db.collection("users").document(uid)
         user_doc = user_ref.get()
         
@@ -566,7 +569,6 @@ async def mark_messages_as_read(
         uid = decoded_token.get("uid")
         
         # Get user role
-        from config import db
         user_ref = db.collection("users").document(uid)
         user_doc = user_ref.get()
         

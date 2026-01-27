@@ -50,16 +50,41 @@ onAuthStateChanged(auth, async (user) => {
 
 // Wait for DOM to be ready
 document.addEventListener('DOMContentLoaded', () => {
-    // Global modal close: body delegation for .modal-close-btn and overlay click
+    // Single body delegation: modal close, overlay click, and article View/Delete (no inline handlers)
     document.body.addEventListener('click', (e) => {
+        // 1) Modal close: X button or footer "Close" with .modal-close-btn
         if (e.target.closest('.modal-close-btn')) {
             const btn = e.target.closest('.modal-close-btn');
-            const overlay = btn.dataset.modal ? document.getElementById(btn.dataset.modal) : btn.closest('.modal-overlay');
+            const overlay = (btn.dataset.modal && document.getElementById(btn.dataset.modal))
+                ? document.getElementById(btn.dataset.modal)
+                : btn.closest('.modal-overlay');
             if (overlay) closeModal(overlay);
+            e.preventDefault();
             return;
         }
+        // 2) Click on overlay backdrop (the dark overlay div)
         if (e.target.classList.contains('modal-overlay')) {
             closeModal(e.target);
+            return;
+        }
+        // 3) Article "View" button
+        const viewBtn = e.target.closest('.view-article-btn');
+        if (viewBtn && viewBtn.dataset.articleId) {
+            e.preventDefault();
+            openArticleViewModal(viewBtn.dataset.articleId);
+            return;
+        }
+        // 4) Article "Delete" button
+        const delBtn = e.target.closest('.delete-article-btn');
+        if (delBtn && delBtn.dataset.articleId) {
+            e.preventDefault();
+            deleteArticle(delBtn.dataset.articleId);
+            return;
+        }
+        // 5) Article card (clicking card body, not a button)
+        const card = e.target.closest('.article-card');
+        if (card && card.dataset.articleId && !e.target.closest('button')) {
+            openArticleViewModal(card.dataset.articleId);
             return;
         }
     });
@@ -71,25 +96,6 @@ document.addEventListener('DOMContentLoaded', () => {
             if (filter) filterTicketsByStat(filter);
         });
     });
-    
-    // Article list: delegation for View / Delete and card click
-    const articlesList = document.getElementById('articles-list');
-    if (articlesList) {
-        articlesList.addEventListener('click', (e) => {
-            const articleId = e.target.closest('[data-article-id]')?.dataset.articleId;
-            if (!articleId) return;
-            const article = currentArticles.find(a => a.id === articleId);
-            if (e.target.closest('.view-article-btn')) {
-                e.stopPropagation();
-                openArticleViewModal(articleId);
-            } else if (e.target.closest('.delete-article-btn')) {
-                e.stopPropagation();
-                deleteArticle(articleId);
-            } else if (e.target.closest('.article-card')) {
-                openArticleViewModal(articleId);
-            }
-        });
-    }
     
     // Article modal: Edit / Cancel / Save (not close — close uses body delegation)
     document.getElementById('article-edit-btn')?.addEventListener('click', switchToEditMode);
@@ -214,33 +220,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
     
-    // Close modals when clicking outside
-    const articleModal = document.getElementById('article-modal');
-    if (articleModal) {
-        articleModal.addEventListener('click', (e) => {
-            if (e.target.id === 'article-modal') {
-                closeArticleModal();
-            }
-        });
-    }
-    
-    const ticketModal = document.getElementById('ticket-modal');
-    if (ticketModal) {
-        ticketModal.addEventListener('click', (e) => {
-            if (e.target.id === 'ticket-modal') {
-                closeTicketModal();
-            }
-        });
-    }
-    
-    const messagesModal = document.getElementById('messages-modal');
-    if (messagesModal) {
-        messagesModal.addEventListener('click', (e) => {
-            if (e.target.id === 'messages-modal') {
-                closeMessagesModal();
-            }
-        });
-    }
+    // Modal "click outside" is handled by body delegation (e.target.classList.contains('modal-overlay'))
 });
 
 // Knowledge Base Form Handler

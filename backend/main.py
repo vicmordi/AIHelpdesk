@@ -34,10 +34,13 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# CORS middleware
+# CORS middleware — allow Firebase Hosting frontend only
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Replace with your Firebase Hosting URL later
+    allow_origins=[
+        "https://aihelpdesk-21060.web.app",
+        "https://aihelpdesk-21060.firebaseapp.com",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

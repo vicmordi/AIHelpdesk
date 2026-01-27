@@ -20,8 +20,7 @@ firebase.initializeApp(firebaseConfig);
 // Get Auth instance
 const auth = firebase.auth();
 
-// API Base URL - Update this to match your backend URL
-const API_BASE_URL = "http://localhost:8000";
+// API_BASE_URL is provided by /js/config.js (must be loaded before this file)
 
 /**
  * Get the current user's ID token for API authentication

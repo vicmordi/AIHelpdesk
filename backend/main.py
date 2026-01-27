@@ -3,6 +3,7 @@ AI Helpdesk Backend - FastAPI Application
 Main entry point for the helpdesk API
 """
 
+import json
 import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -15,17 +16,15 @@ from routes import auth, knowledge_base, tickets
 
 def init_firebase():
     """
-    Initialize Firebase Admin SDK using file-based credentials.
-    Uses GOOGLE_APPLICATION_CREDENTIALS or defaults to backend/serviceAccountKey.json.
+    Initialize Firebase Admin SDK exactly once.
+    Uses GOOGLE_APPLICATION_CREDENTIALS env var containing the full service account JSON.
+    No file reads; compatible with Render deployment.
     """
     if firebase_admin._apps:
         return
 
-    cred_path = os.getenv(
-        "GOOGLE_APPLICATION_CREDENTIALS",
-        "backend/serviceAccountKey.json",
-    )
-    cred = credentials.Certificate(cred_path)
+    cred_dict = json.loads(os.environ["GOOGLE_APPLICATION_CREDENTIALS"])
+    cred = credentials.Certificate(cred_dict)
     firebase_admin.initialize_app(cred)
 
 

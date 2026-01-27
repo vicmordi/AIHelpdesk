@@ -1,6 +1,6 @@
 """
-Configuration - Environment variables only
-Firebase Admin SDK is initialized in main.py using environment variables.
+Configuration - Environment variables only.
+Firebase Admin SDK is initialized in main.py via GOOGLE_APPLICATION_CREDENTIALS (JSON string).
 """
 
 import os

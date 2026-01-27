@@ -50,6 +50,68 @@ onAuthStateChanged(auth, async (user) => {
 
 // Wait for DOM to be ready
 document.addEventListener('DOMContentLoaded', () => {
+    // Stat cards: filter tickets by click (no inline onclick)
+    document.querySelectorAll('.stat-card[data-filter]').forEach(card => {
+        card.addEventListener('click', () => {
+            const filter = card.dataset.filter;
+            if (filter) filterTicketsByStat(filter);
+        });
+    });
+    
+    // Article list: delegation for View / Delete and card click
+    const articlesList = document.getElementById('articles-list');
+    if (articlesList) {
+        articlesList.addEventListener('click', (e) => {
+            const articleId = e.target.closest('[data-article-id]')?.dataset.articleId;
+            if (!articleId) return;
+            const article = currentArticles.find(a => a.id === articleId);
+            if (e.target.closest('.view-article-btn')) {
+                e.stopPropagation();
+                if (article) openArticleViewModal(article.id, article.title, article.content, article.createdAt, article.updatedAt || '');
+            } else if (e.target.closest('.delete-article-btn')) {
+                e.stopPropagation();
+                deleteArticle(articleId);
+            } else if (e.target.closest('.article-card')) {
+                if (article) openArticleViewModal(article.id, article.title, article.content, article.createdAt, article.updatedAt || '');
+            }
+        });
+    }
+    
+    // Article modal buttons (no inline onclick)
+    document.getElementById('article-modal-close')?.addEventListener('click', closeArticleModal);
+    document.getElementById('article-close-btn')?.addEventListener('click', closeArticleModal);
+    document.getElementById('article-edit-btn')?.addEventListener('click', switchToEditMode);
+    document.getElementById('article-cancel-edit-btn')?.addEventListener('click', cancelEditMode);
+    document.getElementById('article-save-edit-btn')?.addEventListener('click', saveArticleEdit);
+    
+    // Messages modal buttons
+    document.getElementById('messages-modal-close')?.addEventListener('click', closeMessagesModal);
+    document.getElementById('messages-modal-close-btn')?.addEventListener('click', closeMessagesModal);
+    
+    // Ticket modal buttons
+    document.getElementById('ticket-modal-close')?.addEventListener('click', closeTicketModal);
+    document.getElementById('ticket-modal-close-btn')?.addEventListener('click', closeTicketModal);
+    
+    // Ticket lists: delegation for ticket card click (open modal)
+    document.getElementById('all-tickets-list')?.addEventListener('click', (e) => {
+        const card = e.target.closest('.ticket-card[data-ticket-id]');
+        if (card) openTicketModal(card.dataset.ticketId);
+    });
+    document.getElementById('escalated-tickets-list')?.addEventListener('click', (e) => {
+        const card = e.target.closest('.ticket-card[data-ticket-id]');
+        if (card) openTicketModal(card.dataset.ticketId);
+    });
+    document.getElementById('messages-tickets-list')?.addEventListener('click', (e) => {
+        const card = e.target.closest('.ticket-card[data-ticket-id]');
+        if (card) openTicketFromMessages(card.dataset.ticketId);
+    });
+    
+    // Ticket modal body: delegation for Update status button (dynamic content)
+    document.getElementById('ticket-modal')?.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-action="update-ticket-status"]');
+        if (btn && btn.dataset.ticketId) updateTicketStatus(btn.dataset.ticketId);
+    });
+    
     // Logout handler
     const logoutBtn = document.getElementById('logout-btn');
     if (logoutBtn) {
@@ -199,6 +261,9 @@ document.getElementById('kb-form').addEventListener('submit', async (e) => {
     }
 });
 
+// Store loaded articles for event delegation (View/Delete by data-article-id)
+let currentArticles = [];
+
 /**
  * Load knowledge base articles
  */
@@ -209,6 +274,7 @@ async function loadKnowledgeBase() {
     try {
         const data = await apiRequest('/knowledge-base');
         const articles = data.articles || [];
+        currentArticles = articles;
         
         // Update count badge
         const kbCount = document.getElementById('kb-count');
@@ -229,7 +295,7 @@ async function loadKnowledgeBase() {
         }
         
         articlesList.innerHTML = articles.map(article => `
-            <div class="article-card" onclick="openArticleViewModal('${article.id}', '${escapeHtml(article.title).replace(/'/g, "\\'")}', '${escapeHtml(article.content).replace(/'/g, "\\'").replace(/\n/g, '\\n')}', '${article.createdAt}', '${article.updatedAt || ''}')">
+            <div class="article-card" data-article-id="${article.id}">
                 <h3>${escapeHtml(article.title)}</h3>
                 <p>${escapeHtml(article.content.length > 200 ? article.content.substring(0, 200) + '...' : article.content)}</p>
                 <div class="meta">
@@ -237,8 +303,8 @@ async function loadKnowledgeBase() {
                     ${article.updatedAt ? ` | Updated: ${new Date(article.updatedAt).toLocaleString()}` : ''}
                 </div>
                 <div style="margin-top: 12px; display: flex; gap: 8px;">
-                    <button class="btn btn-primary" onclick="event.stopPropagation(); openArticleViewModal('${article.id}', '${escapeHtml(article.title).replace(/'/g, "\\'")}', '${escapeHtml(article.content).replace(/'/g, "\\'").replace(/\n/g, '\\n')}', '${article.createdAt}', '${article.updatedAt || ''}')">View</button>
-                    <button class="btn btn-danger" onclick="event.stopPropagation(); deleteArticle('${article.id}')">Delete</button>
+                    <button type="button" class="btn btn-primary view-article-btn" data-article-id="${article.id}">View</button>
+                    <button type="button" class="btn btn-danger delete-article-btn" data-article-id="${article.id}">Delete</button>
                 </div>
             </div>
         `).join('');
@@ -343,7 +409,7 @@ async function loadEscalatedTickets() {
                                ticket.status === 'pending' ? 'badge-neutral' : 'badge-warning';
             
             return `
-            <div class="ticket-card status-${ticket.status}" onclick="openTicketModal('${ticket.id}')">
+            <div class="ticket-card status-${ticket.status}" data-ticket-id="${ticket.id}">
                 <div class="ticket-header">
                     <div style="flex: 1;">
                         <div style="display: flex; align-items: center; gap: 8px;">
@@ -536,7 +602,7 @@ async function loadAllTickets() {
                                ticket.status === 'pending' ? 'badge-neutral' : 'badge-warning';
             
             return `
-            <div class="ticket-card status-${ticket.status}" onclick="openTicketModal('${ticket.id}')">
+            <div class="ticket-card status-${ticket.status}" data-ticket-id="${ticket.id}">
                 <div class="ticket-header">
                     <div style="flex: 1;">
                         <div style="display: flex; align-items: center; gap: 8px;">
@@ -573,9 +639,8 @@ async function loadAllTickets() {
 
 /**
  * Update statistics cards
- * Make it globally accessible
  */
-window.updateStatistics = function(stats) {
+function updateStatistics(stats) {
     const statTotal = document.getElementById('stat-total');
     if (statTotal) {
         statTotal.setAttribute('data-value', stats.total);
@@ -603,9 +668,8 @@ window.updateStatistics = function(stats) {
 
 /**
  * Filter tickets by clicking statistics card
- * Make it globally accessible for onclick handlers
  */
-window.filterTicketsByStat = function(filter) {
+function filterTicketsByStat(filter) {
     window.currentTicketFilter = filter;
     
     // Update status filter dropdown
@@ -702,7 +766,7 @@ async function openMessagesModal() {
                                lastMessage && lastMessage.sender === 'admin' ? 'You' : 'AI Assistant';
             
             return `
-            <div class="ticket-card status-${ticket.status}" onclick="openTicketFromMessages('${ticket.id}')">
+            <div class="ticket-card status-${ticket.status}" data-ticket-id="${ticket.id}">
                 <div class="ticket-header">
                     <div style="flex: 1;">
                         <div style="display: flex; align-items: center; gap: 8px;">
@@ -743,18 +807,16 @@ async function openMessagesModal() {
 
 /**
  * Open ticket from messages modal
- * Make it globally accessible for onclick handlers
  */
-window.openTicketFromMessages = function(ticketId) {
+function openTicketFromMessages(ticketId) {
     closeMessagesModal();
     openTicketModal(ticketId);
 }
 
 /**
  * Close messages modal
- * Make it globally accessible for onclick handlers
  */
-window.closeMessagesModal = function() {
+function closeMessagesModal() {
     document.getElementById('messages-modal')?.classList.remove('active');
 }
 
@@ -933,9 +995,8 @@ let currentTicketData = null;
 
 /**
  * Open ticket detail modal with conversation thread
- * Make it globally accessible for onclick handlers
  */
-window.openTicketModal = async function(ticketId) {
+async function openTicketModal(ticketId) {
     const modal = document.getElementById('ticket-modal');
     const modalBody = document.getElementById('ticket-modal-body');
     const modalTitle = document.getElementById('ticket-modal-title');
@@ -1021,7 +1082,7 @@ window.openTicketModal = async function(ticketId) {
                             <option value="escalated" ${ticket.status === 'escalated' ? 'selected' : ''}>Escalated</option>
                             <option value="auto_resolved" ${ticket.status === 'auto_resolved' ? 'selected' : ''}>Auto-Resolved</option>
                         </select>
-                        <button class="btn btn-primary btn-sm" onclick="updateTicketStatus('${ticketId}')">Update</button>
+                        <button type="button" class="btn btn-primary btn-sm" data-action="update-ticket-status" data-ticket-id="${ticketId}">Update</button>
                     </div>
                 </div>
             </div>
@@ -1091,9 +1152,8 @@ window.openTicketModal = async function(ticketId) {
 
 /**
  * Update ticket status (Admin only)
- * Make it globally accessible for onclick handlers
  */
-window.updateTicketStatus = async function(ticketId) {
+async function updateTicketStatus(ticketId) {
     const statusSelect = document.getElementById('ticket-status-select');
     const newStatus = statusSelect.value;
     
@@ -1122,9 +1182,8 @@ window.updateTicketStatus = async function(ticketId) {
 
 /**
  * Close ticket detail modal
- * Make it globally accessible for onclick handlers
  */
-window.closeTicketModal = function() {
+function closeTicketModal() {
     document.getElementById('ticket-modal').classList.remove('active');
 }
 

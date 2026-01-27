@@ -48,8 +48,53 @@ onAuthStateChanged(auth, async (user) => {
     }
 });
 
+/**
+ * Close a modal overlay by removing .active. Used by body delegation for .modal-close-btn and overlay backdrop.
+ */
+function closeModal(overlay) {
+    if (!overlay) return;
+    overlay.classList.remove('active');
+}
+
 // Wait for DOM to be ready
 document.addEventListener('DOMContentLoaded', () => {
+    // Body delegation: close modals via .modal-close-btn or clicking overlay
+    document.body.addEventListener('click', (e) => {
+        if (e.target.closest('.modal-close-btn')) {
+            const btn = e.target.closest('.modal-close-btn');
+            const overlay = btn.dataset.modal ? document.getElementById(btn.dataset.modal) : btn.closest('.modal-overlay');
+            if (overlay) closeModal(overlay);
+            return;
+        }
+        if (e.target.classList.contains('modal-overlay')) {
+            closeModal(e.target);
+            return;
+        }
+    });
+
+    // Stat cards: filter by click (no inline onclick)
+    document.querySelectorAll('.stat-card[data-filter]').forEach(card => {
+        card.addEventListener('click', () => {
+            const filter = card.dataset.filter;
+            if (filter) filterTicketsByStat(filter);
+        });
+    });
+
+    // Ticket lists: delegation for ticket card click (open modal)
+    document.getElementById('my-tickets-list')?.addEventListener('click', (e) => {
+        const card = e.target.closest('.ticket-card[data-ticket-id]');
+        if (card) openTicketModal(card.dataset.ticketId);
+    });
+    document.getElementById('messages-tickets-list')?.addEventListener('click', (e) => {
+        const card = e.target.closest('.ticket-card[data-ticket-id]');
+        if (card) openTicketFromMessages(card.dataset.ticketId);
+    });
+
+    // New ticket button
+    document.getElementById('new-ticket-btn')?.addEventListener('click', () => {
+        document.querySelector('[data-tab="submit"]')?.click();
+    });
+
     // Logout handler
     const logoutBtn = document.getElementById('logout-btn');
     if (logoutBtn) {
@@ -309,7 +354,7 @@ window.loadMyTickets = async function() {
                                ticket.status === 'pending' ? 'badge-neutral' : 'badge-warning';
             
             return `
-            <div class="ticket-card status-${ticket.status}" onclick="openTicketModal('${ticket.id}')">
+            <div class="ticket-card status-${ticket.status}" data-ticket-id="${ticket.id}">
                 <div class="ticket-header">
                     <div style="flex: 1;">
                         <div style="display: flex; align-items: center; gap: 8px;">
@@ -373,9 +418,8 @@ let currentUserTicketData = null;
 
 /**
  * Open ticket detail modal with conversation thread (user view)
- * Make it globally accessible for onclick handlers
  */
-window.openTicketModal = async function(ticketId) {
+async function openTicketModal(ticketId) {
     const modal = document.getElementById('ticket-modal');
     const modalBody = document.getElementById('ticket-modal-body');
     const modalTitle = document.getElementById('ticket-modal-title');
@@ -514,10 +558,10 @@ window.openTicketModal = async function(ticketId) {
 
 /**
  * Close ticket detail modal
- * Make it globally accessible for onclick handlers
  */
-window.closeTicketModal = function() {
-    document.getElementById('ticket-modal').classList.remove('active');
+function closeTicketModal() {
+    const overlay = document.getElementById('ticket-modal');
+    if (overlay) closeModal(overlay);
 }
 
 // Ticket message form handler (user)
@@ -535,7 +579,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
             
-            // Disable button
             submitBtn.disabled = true;
             submitBtn.textContent = 'Sending...';
             
@@ -548,16 +591,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     })
                 });
                 
-                // Clear input
                 document.getElementById('ticket-message-text').value = '';
-                
-        // Reload ticket to show new message
-        await openTicketModal(ticketId);
-        
-        // Reload tickets list to update unread counts and message icon badge
-        await loadMyTickets();
-        
-        showSuccess('Message sent successfully!');
+                await openTicketModal(ticketId);
+                await loadMyTickets();
+                showSuccess('Message sent successfully!');
                 
             } catch (error) {
                 showError(`Failed to send message: ${error.message}`);
@@ -567,32 +604,12 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
     }
-    
-    // Close modal when clicking outside
-    const ticketModal = document.getElementById('ticket-modal');
-    if (ticketModal) {
-        ticketModal.addEventListener('click', (e) => {
-            if (e.target.id === 'ticket-modal') {
-                closeTicketModal();
-            }
-        });
-    }
-    
-    const messagesModal = document.getElementById('messages-modal');
-    if (messagesModal) {
-        messagesModal.addEventListener('click', (e) => {
-            if (e.target.id === 'messages-modal') {
-                closeMessagesModal();
-            }
-        });
-    }
 });
 
 /**
  * Update statistics cards
- * Make it globally accessible
  */
-window.updateStatistics = function(stats) {
+function updateStatistics(stats) {
     const statTotal = document.getElementById('stat-total');
     if (statTotal) {
         statTotal.setAttribute('data-value', stats.total);
@@ -620,9 +637,8 @@ window.updateStatistics = function(stats) {
 
 /**
  * Filter tickets by clicking statistics card
- * Make it globally accessible for onclick handlers
  */
-window.filterTicketsByStat = function(filter) {
+function filterTicketsByStat(filter) {
     window.currentTicketFilter = filter;
     
     // Update active stat card
@@ -694,7 +710,7 @@ function renderFilteredTickets(tickets) {
                            ticket.status === 'pending' ? 'badge-neutral' : 'badge-warning';
         
         return `
-        <div class="ticket-card status-${ticket.status}" onclick="openTicketModal('${ticket.id}')">
+        <div class="ticket-card status-${ticket.status}" data-ticket-id="${ticket.id}">
             <div class="ticket-header">
                 <div style="flex: 1;">
                     <div style="display: flex; align-items: center; gap: 8px;">
@@ -791,7 +807,7 @@ async function openMessagesModal() {
                                lastMessage && lastMessage.sender === 'admin' ? 'Admin' : 'AI Assistant';
             
             return `
-            <div class="ticket-card status-${ticket.status}" onclick="openTicketFromMessages('${ticket.id}')">
+            <div class="ticket-card status-${ticket.status}" data-ticket-id="${ticket.id}">
                 <div class="ticket-header">
                     <div style="flex: 1;">
                         <div style="display: flex; align-items: center; gap: 8px;">
@@ -828,19 +844,18 @@ async function openMessagesModal() {
 
 /**
  * Open ticket from messages modal
- * Make it globally accessible for onclick handlers
  */
-window.openTicketFromMessages = function(ticketId) {
+function openTicketFromMessages(ticketId) {
     closeMessagesModal();
     openTicketModal(ticketId);
 }
 
 /**
  * Close messages modal
- * Make it globally accessible for onclick handlers
  */
-window.closeMessagesModal = function() {
-    document.getElementById('messages-modal')?.classList.remove('active');
+function closeMessagesModal() {
+    const overlay = document.getElementById('messages-modal');
+    if (overlay) closeModal(overlay);
 }
 
 function escapeHtml(text) {

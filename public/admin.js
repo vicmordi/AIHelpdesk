@@ -50,6 +50,20 @@ onAuthStateChanged(auth, async (user) => {
 
 // Wait for DOM to be ready
 document.addEventListener('DOMContentLoaded', () => {
+    // Global modal close: body delegation for .modal-close-btn and overlay click
+    document.body.addEventListener('click', (e) => {
+        if (e.target.closest('.modal-close-btn')) {
+            const btn = e.target.closest('.modal-close-btn');
+            const overlay = btn.dataset.modal ? document.getElementById(btn.dataset.modal) : btn.closest('.modal-overlay');
+            if (overlay) closeModal(overlay);
+            return;
+        }
+        if (e.target.classList.contains('modal-overlay')) {
+            closeModal(e.target);
+            return;
+        }
+    });
+
     // Stat cards: filter tickets by click (no inline onclick)
     document.querySelectorAll('.stat-card[data-filter]').forEach(card => {
         card.addEventListener('click', () => {
@@ -67,30 +81,20 @@ document.addEventListener('DOMContentLoaded', () => {
             const article = currentArticles.find(a => a.id === articleId);
             if (e.target.closest('.view-article-btn')) {
                 e.stopPropagation();
-                if (article) openArticleViewModal(article.id, article.title, article.content, article.createdAt, article.updatedAt || '');
+                openArticleViewModal(articleId);
             } else if (e.target.closest('.delete-article-btn')) {
                 e.stopPropagation();
                 deleteArticle(articleId);
             } else if (e.target.closest('.article-card')) {
-                if (article) openArticleViewModal(article.id, article.title, article.content, article.createdAt, article.updatedAt || '');
+                openArticleViewModal(articleId);
             }
         });
     }
     
-    // Article modal buttons (no inline onclick)
-    document.getElementById('article-modal-close')?.addEventListener('click', closeArticleModal);
-    document.getElementById('article-close-btn')?.addEventListener('click', closeArticleModal);
+    // Article modal: Edit / Cancel / Save (not close — close uses body delegation)
     document.getElementById('article-edit-btn')?.addEventListener('click', switchToEditMode);
     document.getElementById('article-cancel-edit-btn')?.addEventListener('click', cancelEditMode);
     document.getElementById('article-save-edit-btn')?.addEventListener('click', saveArticleEdit);
-    
-    // Messages modal buttons
-    document.getElementById('messages-modal-close')?.addEventListener('click', closeMessagesModal);
-    document.getElementById('messages-modal-close-btn')?.addEventListener('click', closeMessagesModal);
-    
-    // Ticket modal buttons
-    document.getElementById('ticket-modal-close')?.addEventListener('click', closeTicketModal);
-    document.getElementById('ticket-modal-close-btn')?.addEventListener('click', closeTicketModal);
     
     // Ticket lists: delegation for ticket card click (open modal)
     document.getElementById('all-tickets-list')?.addEventListener('click', (e) => {
@@ -817,15 +821,9 @@ function openTicketFromMessages(ticketId) {
  * Close messages modal
  */
 function closeMessagesModal() {
-    document.getElementById('messages-modal')?.classList.remove('active');
+    const overlay = document.getElementById('messages-modal');
+    if (overlay) closeModal(overlay);
 }
-
-// Close messages modal when clicking outside
-document.getElementById('messages-modal')?.addEventListener('click', (e) => {
-    if (e.target.id === 'messages-modal') {
-        closeMessagesModal();
-    }
-});
 
 // Article modal state
 let currentArticleData = {
@@ -837,9 +835,39 @@ let currentArticleData = {
 };
 
 /**
- * Open article view modal (read-only mode)
+ * Close any modal overlay. Use for .modal-close-btn and overlay-backdrop clicks.
+ * Resets article modal state when closing article-modal.
+ */
+function closeModal(overlay) {
+    if (!overlay) return;
+    overlay.classList.remove('active');
+    if (overlay.id === 'article-modal') {
+        document.getElementById('edit-article-form')?.reset();
+        currentArticleData = { id: null, title: null, content: null, createdAt: null, updatedAt: null };
+        const viewMode = document.getElementById('article-view-mode');
+        const editMode = document.getElementById('article-edit-mode');
+        const viewBtns = document.getElementById('article-view-buttons');
+        const editBtns = document.getElementById('article-edit-buttons');
+        if (viewMode) viewMode.style.display = 'block';
+        if (editMode) editMode.style.display = 'none';
+        if (viewBtns) viewBtns.style.display = 'flex';
+        if (editBtns) editBtns.style.display = 'none';
+    }
+}
+
+/**
+ * Open article view modal. Call with (articleId) to look up from currentArticles, or (id, title, content, createdAt, updatedAt).
  */
 function openArticleViewModal(articleId, title, content, createdAt, updatedAt) {
+    if (arguments.length === 1) {
+        const article = currentArticles.find(a => a.id === articleId);
+        if (!article) {
+            console.error('Article not found:', articleId);
+            return;
+        }
+        openArticleViewModal(article.id, article.title, article.content, article.createdAt, article.updatedAt || '');
+        return;
+    }
     // Store article data for potential editing
     currentArticleData = {
         id: articleId,
@@ -869,8 +897,10 @@ function openArticleViewModal(articleId, title, content, createdAt, updatedAt) {
     document.getElementById('article-view-buttons').style.display = 'flex';
     document.getElementById('article-edit-buttons').style.display = 'none';
     
-    // Open modal
-    document.getElementById('article-modal').classList.add('active');
+    // Open modal (article-modal is the overlay id)
+    const modal = document.getElementById('article-modal');
+    if (!modal) return console.error('Modal not found: article-modal');
+    modal.classList.add('active');
 }
 
 /**
@@ -931,26 +961,11 @@ function cancelEditMode() {
 }
 
 /**
- * Close article modal
+ * Close article modal (calls closeModal for consistency)
  */
 function closeArticleModal() {
-    document.getElementById('article-modal').classList.remove('active');
-    document.getElementById('edit-article-form').reset();
-    
-    // Reset state
-    currentArticleData = {
-        id: null,
-        title: null,
-        content: null,
-        createdAt: null,
-        updatedAt: null
-    };
-    
-    // Reset to view mode
-    document.getElementById('article-view-mode').style.display = 'block';
-    document.getElementById('article-edit-mode').style.display = 'none';
-    document.getElementById('article-view-buttons').style.display = 'flex';
-    document.getElementById('article-edit-buttons').style.display = 'none';
+    const overlay = document.getElementById('article-modal');
+    if (overlay) closeModal(overlay);
 }
 
 /**
@@ -1184,7 +1199,8 @@ async function updateTicketStatus(ticketId) {
  * Close ticket detail modal
  */
 function closeTicketModal() {
-    document.getElementById('ticket-modal').classList.remove('active');
+    const overlay = document.getElementById('ticket-modal');
+    if (overlay) closeModal(overlay);
 }
 
 function escapeHtml(text) {

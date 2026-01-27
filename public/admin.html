@@ -152,7 +152,7 @@
         <div class="modal">
             <div class="modal-header">
                 <h2 id="article-modal-title">Knowledge Base Article</h2>
-                <button type="button" id="article-modal-close" class="modal-close" aria-label="Close">&times;</button>
+                <button type="button" class="modal-close modal-close-btn" data-modal="article-modal" aria-label="Close">&times;</button>
             </div>
             <div class="modal-body">
                 <!-- View Mode (Default) -->
@@ -190,7 +190,7 @@
                 <!-- View mode buttons -->
                 <div id="article-view-buttons">
                     <button type="button" id="article-edit-btn" class="btn btn-primary">Edit</button>
-                    <button type="button" id="article-close-btn" class="btn btn-secondary">Close</button>
+                    <button type="button" class="btn btn-secondary modal-close-btn" data-modal="article-modal">Close</button>
                 </div>
                 <!-- Edit mode buttons -->
                 <div id="article-edit-buttons" style="display: none;">
@@ -206,7 +206,7 @@
         <div class="modal" style="max-width: 600px;">
             <div class="modal-header">
                 <h2>Messages</h2>
-                <button type="button" id="messages-modal-close" class="modal-close" aria-label="Close">&times;</button>
+                <button type="button" class="modal-close modal-close-btn" data-modal="messages-modal" aria-label="Close">&times;</button>
             </div>
             <div class="modal-body">
                 <div id="messages-tickets-list" class="tickets-list">
@@ -214,7 +214,7 @@
                 </div>
             </div>
             <div class="modal-footer">
-                <button type="button" id="messages-modal-close-btn" class="btn btn-secondary">Close</button>
+                <button type="button" class="btn btn-secondary modal-close-btn" data-modal="messages-modal">Close</button>
             </div>
         </div>
     </div>
@@ -224,7 +224,7 @@
         <div class="modal" style="max-width: 900px;">
             <div class="modal-header">
                 <h2 id="ticket-modal-title">Ticket Details</h2>
-                <button type="button" id="ticket-modal-close" class="modal-close" aria-label="Close">&times;</button>
+                <button type="button" class="modal-close modal-close-btn" data-modal="ticket-modal" aria-label="Close">&times;</button>
             </div>
             <div class="modal-body" id="ticket-modal-body">
                 <!-- Ticket details will be loaded here -->
@@ -237,7 +237,7 @@
                 </form>
             </div>
             <div class="modal-footer">
-                <button type="button" id="ticket-modal-close-btn" class="btn btn-secondary">Close</button>
+                <button type="button" class="btn btn-secondary modal-close-btn" data-modal="ticket-modal">Close</button>
             </div>
         </div>
     </div>

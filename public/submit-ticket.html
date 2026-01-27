@@ -43,22 +43,22 @@
         <div id="my-tickets-tab" class="tab-content active">
             <!-- Statistics Cards -->
             <div class="stats-grid" id="stats-grid">
-                <div class="stat-card" data-filter="all" onclick="filterTicketsByStat('all')">
+                <div class="stat-card" data-filter="all">
                     <div class="stat-icon">📋</div>
                     <div class="stat-value" id="stat-total">0</div>
                     <div class="stat-label">All Tickets</div>
                 </div>
-                <div class="stat-card" data-filter="resolved" onclick="filterTicketsByStat('resolved')">
+                <div class="stat-card" data-filter="resolved">
                     <div class="stat-icon">✅</div>
                     <div class="stat-value" id="stat-resolved">0</div>
                     <div class="stat-label">Resolved</div>
                 </div>
-                <div class="stat-card" data-filter="escalated" onclick="filterTicketsByStat('escalated')">
+                <div class="stat-card" data-filter="escalated">
                     <div class="stat-icon">⚠️</div>
                     <div class="stat-value" id="stat-escalated">0</div>
                     <div class="stat-label">Escalated</div>
                 </div>
-                <div class="stat-card" data-filter="in_progress" onclick="filterTicketsByStat('in_progress')">
+                <div class="stat-card" data-filter="in_progress">
                     <div class="stat-icon">🔄</div>
                     <div class="stat-value" id="stat-in-progress">0</div>
                     <div class="stat-label">In Progress</div>
@@ -68,7 +68,7 @@
             <div class="card">
                 <div class="card-header">
                     <h2 id="tickets-list-title">My Tickets</h2>
-                    <button class="btn btn-primary btn-sm" onclick="document.querySelector('[data-tab=\"submit\"]').click()">+ New Ticket</button>
+                    <button type="button" class="btn btn-primary btn-sm" id="new-ticket-btn">+ New Ticket</button>
                 </div>
                 <div class="card-body">
                     <div id="my-tickets-list" class="tickets-list">
@@ -113,7 +113,7 @@
         <div class="modal" style="max-width: 600px;">
             <div class="modal-header">
                 <h2>Messages</h2>
-                <button class="modal-close" onclick="closeMessagesModal()">&times;</button>
+                <button type="button" class="modal-close modal-close-btn" data-modal="messages-modal" aria-label="Close">&times;</button>
             </div>
             <div class="modal-body">
                 <div id="messages-tickets-list" class="tickets-list">
@@ -121,7 +121,7 @@
                 </div>
             </div>
             <div class="modal-footer">
-                <button class="btn btn-secondary" onclick="closeMessagesModal()">Close</button>
+                <button type="button" class="btn btn-secondary modal-close-btn" data-modal="messages-modal">Close</button>
             </div>
         </div>
     </div>
@@ -131,7 +131,7 @@
         <div class="modal" style="max-width: 900px;">
             <div class="modal-header">
                 <h2 id="ticket-modal-title">Ticket Details</h2>
-                <button class="modal-close" onclick="closeTicketModal()">&times;</button>
+                <button type="button" class="modal-close modal-close-btn" data-modal="ticket-modal" aria-label="Close">&times;</button>
             </div>
             <div class="modal-body" id="ticket-modal-body">
                 <!-- Ticket details will be loaded here -->
@@ -144,7 +144,7 @@
                 </form>
             </div>
             <div class="modal-footer">
-                <button class="btn btn-secondary" onclick="closeTicketModal()">Close</button>
+                <button type="button" class="btn btn-secondary modal-close-btn" data-modal="ticket-modal">Close</button>
             </div>
         </div>
     </div>

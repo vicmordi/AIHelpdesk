@@ -1,11 +1,13 @@
 /**
  * Submit Ticket Page JavaScript
  */
+import { auth, apiRequest } from "./firebase-config.js";
+import { onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
 
 let currentUser = null;
 
 // Check authentication
-auth.onAuthStateChanged(async (user) => {
+onAuthStateChanged(auth, async (user) => {
     if (!user) {
         window.location.href = 'login.html';
         return;
@@ -53,7 +55,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (logoutBtn) {
         logoutBtn.addEventListener('click', async () => {
             try {
-                await auth.signOut();
+                await signOut(auth);
                 window.location.href = 'index.html';
             } catch (error) {
                 console.error('Logout error:', error);

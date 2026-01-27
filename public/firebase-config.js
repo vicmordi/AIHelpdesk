@@ -1,9 +1,10 @@
 /**
- * Firebase Configuration
- * Replace these values with your Firebase project configuration
+ * Firebase Configuration — single source of truth.
+ * ES module: import { auth, API_BASE_URL, apiRequest } from "./firebase-config.js";
  */
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+import { getAuth } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
 
-// Initialize Firebase
 const firebaseConfig = {
     apiKey: "AIzaSyDf27ycSvzefI94EQwXqQ7FIMekT4JiOGA",
     authDomain: "aihelpdesk-21060.firebaseapp.com",
@@ -12,15 +13,11 @@ const firebaseConfig = {
     messagingSenderId: "966712569424",
     appId: "1:966712569424:web:f907a4b894c197db336b55",
     measurementId: "G-XJ1D6W1ZNQ"
-  };
+};
 
-// Initialize Firebase
-firebase.initializeApp(firebaseConfig);
-
-// Get Auth instance
-const auth = firebase.auth();
-
-// API_BASE_URL is provided by /js/config.js (must be loaded before this file)
+export const app = initializeApp(firebaseConfig);
+export const auth = getAuth(app);
+export const API_BASE_URL = "https://aihelpdesk-2ycg.onrender.com";
 
 /**
  * Get the current user's ID token for API authentication
@@ -34,18 +31,16 @@ async function getIdToken() {
 }
 
 /**
- * Make an authenticated API request
+ * Make an authenticated API request to the backend
  */
-async function apiRequest(endpoint, options = {}) {
+export async function apiRequest(endpoint, options = {}) {
     const token = await getIdToken();
-    
     const defaultOptions = {
         headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${token}`
         }
     };
-    
     const mergedOptions = {
         ...defaultOptions,
         ...options,
@@ -54,13 +49,10 @@ async function apiRequest(endpoint, options = {}) {
             ...(options.headers || {})
         }
     };
-    
     const response = await fetch(`${API_BASE_URL}${endpoint}`, mergedOptions);
-    
     if (!response.ok) {
         const error = await response.json().catch(() => ({ detail: response.statusText }));
         throw new Error(error.detail || `HTTP error! status: ${response.status}`);
     }
-    
     return await response.json();
 }

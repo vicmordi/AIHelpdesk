@@ -1,8 +1,9 @@
 /**
  * Firebase Configuration — single source of truth.
  * ES module: import { auth, API_BASE_URL, apiRequest } from "./firebase-config.js";
+ * Firebase is initialized exactly once (guard with getApps).
  */
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+import { initializeApp, getApps, getApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
 import { getAuth } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
 
 const firebaseConfig = {
@@ -15,7 +16,7 @@ const firebaseConfig = {
     measurementId: "G-XJ1D6W1ZNQ"
 };
 
-export const app = initializeApp(firebaseConfig);
+export const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 export const auth = getAuth(app);
 export const API_BASE_URL = "https://aihelpdesk-2ycg.onrender.com";
 

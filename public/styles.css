@@ -38,6 +38,7 @@ body {
     min-height: 100vh;
     line-height: 1.5;
     font-size: 14px;
+    overflow-x: hidden;
 }
 
 /* Top Navigation Bar */
@@ -96,10 +97,46 @@ body {
     z-index: 1;
 }
 
-.nav-actions {
+/* Nav menu: desktop horizontal, mobile dropdown */
+.nav-menu {
     display: flex;
     align-items: center;
     gap: 16px;
+}
+
+/* Hamburger toggle – hidden on desktop */
+.nav-toggle {
+    display: none;
+    flex-direction: column;
+    justify-content: center;
+    gap: 5px;
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+    min-height: 44px;
+    padding: 0;
+    margin: 0;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    border-radius: var(--radius-sm);
+    transition: background 0.2s;
+}
+.nav-toggle:hover {
+    background: var(--bg-tertiary);
+}
+.nav-toggle:focus,
+.nav-toggle:focus-visible {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 2px;
+}
+.nav-toggle-bar {
+    display: block;
+    width: 22px;
+    height: 2px;
+    background: var(--text-primary);
+    border-radius: 1px;
+    margin: 0 auto;
 }
 
 .user-info {
@@ -734,6 +771,18 @@ body {
 }
 
 /* Responsive Design */
+
+/* Desktop: horizontal nav, hide hamburger */
+@media (min-width: 769px) {
+    .nav-toggle {
+        display: none;
+    }
+    .nav-menu {
+        display: flex;
+    }
+}
+
+/* Mobile: hamburger + collapsible menu */
 @media (max-width: 768px) {
     .container {
         padding: 16px;
@@ -742,15 +791,62 @@ body {
     .top-nav {
         padding: 0 16px;
         height: 56px;
+        flex-wrap: wrap;
+        align-items: center;
     }
     
     .nav-brand {
         font-size: 16px;
+        flex: 1;
+        min-width: 0;
     }
     
-    .user-info {
-        padding: 6px 12px;
-        font-size: 12px;
+    .nav-toggle {
+        display: flex;
+        flex-shrink: 0;
+    }
+    
+    .nav-menu {
+        display: none;
+        flex-direction: column;
+        align-items: stretch;
+        width: 100%;
+        order: 99;
+        gap: 0;
+        padding: 16px 0;
+        margin: 0 -16px;
+        margin-top: 0;
+        padding-top: 12px;
+        border-top: 1px solid var(--border-color);
+        background: var(--bg-secondary);
+        box-shadow: 0 8px 16px rgba(0,0,0,0.08);
+        max-height: min(70vh, 400px);
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+    
+    .top-nav.open .nav-menu {
+        display: flex;
+    }
+    
+    .nav-menu .messages-icon,
+    .nav-menu .user-info {
+        width: 100%;
+        min-height: 44px;
+        justify-content: flex-start;
+        padding-left: 16px;
+        padding-right: 16px;
+    }
+    
+    .nav-menu .user-info {
+        padding: 12px 16px;
+        font-size: 14px;
+    }
+    
+    .nav-menu #logout-btn {
+        width: 100%;
+        min-height: 44px;
+        justify-content: center;
     }
     
     .page-header h1 {
@@ -774,6 +870,7 @@ body {
         padding: 10px 16px;
         font-size: 13px;
         white-space: nowrap;
+        min-height: 44px;
     }
     
     .auth-card {

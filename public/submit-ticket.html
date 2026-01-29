@@ -7,9 +7,14 @@
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-    <nav class="top-nav">
-        <a href="#" class="nav-brand">AI Helpdesk</a>
-        <div class="nav-actions">
+    <nav class="top-nav" id="top-nav">
+        <a href="index.html" class="nav-brand">AI Helpdesk</a>
+        <button type="button" class="nav-toggle" id="nav-toggle" aria-label="Toggle menu" aria-expanded="false">
+            <span class="nav-toggle-bar"></span>
+            <span class="nav-toggle-bar"></span>
+            <span class="nav-toggle-bar"></span>
+        </button>
+        <div class="nav-menu" id="nav-menu">
             <button id="messages-icon-btn" class="btn btn-icon messages-icon" title="Messages">
                 💬
                 <span class="notification-badge" id="header-unread-badge" style="display: none;">0</span>

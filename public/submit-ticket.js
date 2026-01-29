@@ -58,6 +58,40 @@ function closeModal(overlay) {
 
 // Wait for DOM to be ready
 document.addEventListener('DOMContentLoaded', () => {
+    // Responsive nav: hamburger toggle, close on link click or resize to desktop
+    const topNav = document.getElementById('top-nav');
+    const navToggle = document.getElementById('nav-toggle');
+    const navMenu = document.getElementById('nav-menu');
+    function closeNavMenu() {
+        if (!topNav) return;
+        topNav.classList.remove('open');
+        if (navToggle) navToggle.setAttribute('aria-expanded', 'false');
+    }
+    function openNavMenu() {
+        if (!topNav) return;
+        topNav.classList.add('open');
+        if (navToggle) navToggle.setAttribute('aria-expanded', 'true');
+    }
+    if (navToggle && topNav) {
+        navToggle.addEventListener('click', () => {
+            const isOpen = topNav.classList.contains('open');
+            if (isOpen) closeNavMenu();
+            else openNavMenu();
+        });
+    }
+    if (navMenu) {
+        navMenu.addEventListener('click', () => closeNavMenu());
+    }
+    window.addEventListener('resize', () => {
+        if (window.innerWidth >= 769) closeNavMenu();
+    });
+    // Close mobile menu when clicking outside the nav (only on mobile)
+    document.body.addEventListener('click', (e) => {
+        if (window.innerWidth < 769 && topNav && topNav.classList.contains('open') && !e.target.closest('#top-nav')) {
+            closeNavMenu();
+        }
+    });
+
     // Body delegation: close modals via .modal-close-btn or clicking overlay
     document.body.addEventListener('click', (e) => {
         if (e.target.closest('.modal-close-btn')) {

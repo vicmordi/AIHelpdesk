@@ -9,16 +9,18 @@
 <body>
     <nav class="top-nav" id="top-nav">
         <a href="index.html" class="nav-brand">AI Helpdesk</a>
-        <button type="button" class="nav-toggle" id="nav-toggle" aria-label="Toggle menu" aria-expanded="false">
-            <span class="nav-toggle-bar"></span>
-            <span class="nav-toggle-bar"></span>
-            <span class="nav-toggle-bar"></span>
-        </button>
-        <div class="nav-menu" id="nav-menu">
-            <button id="messages-icon-btn" class="btn btn-icon messages-icon" title="Messages">
-                💬
+        <div class="nav-actions-visible">
+            <button id="messages-icon-btn" class="btn btn-icon messages-icon" type="button" title="Messages" aria-label="Open messages">
+                <span class="messages-icon-symbol" aria-hidden="true">💬</span>
                 <span class="notification-badge" id="header-unread-badge" style="display: none;">0</span>
             </button>
+            <button type="button" class="nav-toggle" id="nav-toggle" aria-label="Toggle navigation" aria-expanded="false">
+                <span class="nav-toggle-bar"></span>
+                <span class="nav-toggle-bar"></span>
+                <span class="nav-toggle-bar"></span>
+            </button>
+        </div>
+        <div class="nav-menu" id="nav-menu">
             <div class="user-info">
                 <div class="user-avatar" id="user-avatar">A</div>
                 <span id="user-email"></span>

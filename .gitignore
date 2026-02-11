@@ -17,6 +17,9 @@ build/
 .env.local
 .env.*.local
 
+# Optional local overrides (copy config.js and edit; do not commit real secrets)
+# public/config.local.js
+
 # Firebase
 serviceAccountKey.json
 *-firebase-adminsdk-*.json

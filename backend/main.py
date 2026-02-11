@@ -5,12 +5,27 @@ Main entry point for the helpdesk API
 
 import json
 import os
+
+from dotenv import load_dotenv
+load_dotenv()
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 import firebase_admin
 from firebase_admin import credentials
 
+from config import (
+    API_BASE_URL,
+    CORS_ORIGINS,
+    FIREBASE_APP_ID,
+    FIREBASE_AUTH_DOMAIN,
+    FIREBASE_MEASUREMENT_ID,
+    FIREBASE_MESSAGING_SENDER_ID,
+    FIREBASE_PROJECT_ID,
+    FIREBASE_PUBLIC_API_KEY,
+    FIREBASE_STORAGE_BUCKET,
+)
 from routes import auth, knowledge_base, tickets
 
 
@@ -34,13 +49,10 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# CORS middleware — allow Firebase Hosting frontend only
+# CORS middleware — allow origins from env (CORS_ORIGINS)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://aihelpdesk-21060.web.app",
-        "https://aihelpdesk-21060.firebaseapp.com",
-    ],
+    allow_origins=CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -60,6 +72,23 @@ async def startup_event():
 @app.get("/")
 def health():
     return {"status": "ok"}
+
+
+@app.get("/api/config")
+def get_config():
+    """Return API base URL and Firebase client config from env. Safe to expose."""
+    return {
+        "apiBaseUrl": API_BASE_URL or None,
+        "firebase": {
+            "apiKey": FIREBASE_PUBLIC_API_KEY or None,
+            "authDomain": FIREBASE_AUTH_DOMAIN or None,
+            "projectId": FIREBASE_PROJECT_ID or None,
+            "storageBucket": FIREBASE_STORAGE_BUCKET or None,
+            "messagingSenderId": FIREBASE_MESSAGING_SENDER_ID or None,
+            "appId": FIREBASE_APP_ID or None,
+            "measurementId": FIREBASE_MEASUREMENT_ID or None,
+        },
+    }
 
 
 # Include routers

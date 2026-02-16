@@ -539,6 +539,7 @@ async function openTicketModal(ticketId) {
                 <div class="typing-indicator" id="ticket-typing-indicator" style="display: none;" aria-live="polite">
                     <span class="typing-dots"></span> AI is typing...
                 </div>
+                <div id="ticket-step-options" class="step-options"></div>
             </div>
             
             ${!isGuided && ticket.knowledge_used && ticket.knowledge_used.length > 0 ? `
@@ -571,6 +572,11 @@ async function openTicketModal(ticketId) {
         const conversationThread = modalBody.querySelector('#ticket-conversation-thread');
         if (conversationThread) {
             conversationThread.scrollTop = conversationThread.scrollHeight;
+        }
+        if (isGuided && ticket.current_step_options && ticket.current_step_options.length > 0) {
+            renderStepOptions(ticket.current_step_options);
+        } else {
+            renderStepOptions([]);
         }
         
         // Mark messages as read when viewing
@@ -616,6 +622,33 @@ function appendMessageToTicketThread(sender, message, createdAt) {
     `;
     thread.appendChild(bubble);
     thread.scrollTop = thread.scrollHeight;
+}
+
+/**
+ * Render option buttons for guided flow (e.g. device choice). Click sends that value as message.
+ */
+function renderStepOptions(options) {
+    const container = document.getElementById('ticket-step-options');
+    if (!container) return;
+    container.innerHTML = '';
+    container.style.display = !options || options.length === 0 ? 'none' : 'flex';
+    if (!options || options.length === 0) return;
+    options.forEach(opt => {
+        const label = opt.label || opt.value || '';
+        const value = opt.value || opt.label || label;
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'btn btn-outline step-option-btn';
+        btn.textContent = label;
+        btn.dataset.value = value;
+        btn.addEventListener('click', () => {
+            const input = document.getElementById('ticket-message-text');
+            const form = document.getElementById('ticket-message-form');
+            if (input) input.value = value;
+            if (form) form.requestSubmit();
+        });
+        container.appendChild(btn);
+    });
 }
 
 /**
@@ -671,11 +704,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 
                 if (isGuided && data.ai_reply) {
                     appendMessageToTicketThread('ai', data.ai_reply.message, data.ai_reply.createdAt);
+                    const opts = data.ai_reply.options || [];
+                    renderStepOptions(opts);
                     currentUserTicketData = currentUserTicketData || {};
                     currentUserTicketData.messages = (currentUserTicketData.messages || []).concat(
                         { sender: 'user', message: messageText, createdAt: new Date().toISOString() },
                         data.ai_reply
                     );
+                    currentUserTicketData.current_step_options = opts;
                     currentUserTicketData.resolved = data.resolved === true || currentUserTicketData.resolved;
                     currentUserTicketData.status = data.resolved ? 'resolved' : (currentUserTicketData.status || 'in_progress');
                     if (data.resolved) {

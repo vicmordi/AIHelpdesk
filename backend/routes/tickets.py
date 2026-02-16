@@ -12,6 +12,15 @@ import json
 from firebase_admin import firestore
 from config import OPENAI_API_KEY
 from middleware import verify_token, verify_admin, get_current_user, require_admin_or_above, require_super_admin
+from flow_engine import (
+    normalize_article_to_flow,
+    match_flow_by_trigger,
+    flow_get_first_message,
+    flow_advance,
+    is_resolution_message,
+    is_escalation_message,
+    SUPPORT_AGENT_SYSTEM,
+)
 
 router = APIRouter()
 
@@ -22,6 +31,26 @@ def get_db():
 
 # Initialize OpenAI client
 openai_client = OpenAI(api_key=OPENAI_API_KEY)
+
+
+async def _humanize_reply(raw_message: str) -> str:
+    """Part 3: Run step message through OpenAI for natural, conversational tone."""
+    if not raw_message or len(raw_message.strip()) < 5:
+        return raw_message
+    try:
+        response = openai_client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": SUPPORT_AGENT_SYSTEM},
+                {"role": "user", "content": f"Say this to the user in a brief, friendly way (one short message):\n\n{raw_message}"},
+            ],
+            temperature=0.5,
+            max_tokens=300,
+        )
+        out = (response.choices[0].message.content or "").strip()
+        return out if out else raw_message
+    except Exception:
+        return raw_message
 
 
 class TicketRequest(BaseModel):
@@ -243,38 +272,37 @@ async def create_ticket(
         for doc in kb_stream:
             article_data = doc.to_dict()
             guided_flow = article_data.get("guided_flow", False)
+            art_type = (article_data.get("type") or "").strip() or ("guided" if guided_flow else "static")
             kb_articles_full.append({
                 "id": doc.id,
                 "title": article_data.get("title", ""),
                 "content": article_data.get("content", ""),
+                "category": article_data.get("category", ""),
                 "guided_flow": guided_flow,
                 "guided_branches": article_data.get("guided_branches"),
                 "branches": article_data.get("branches"),
+                "type": art_type,
+                "trigger_phrases": article_data.get("trigger_phrases"),
+                "flow": article_data.get("flow"),
             })
-            # Exclude guided articles from full-article AI so we NEVER return their content
-            if not guided_flow:
+            if not guided_flow and art_type != "guided":
                 knowledge_base.append({
                     "title": article_data.get("title", ""),
                     "content": article_data.get("content", ""),
                 })
 
-        guided = _try_guided_mode(ticket.message, kb_articles_full)
+        now_iso = datetime.utcnow().isoformat()
         messages = [
-            {
-                "sender": "user",
-                "message": ticket.message,
-                "createdAt": datetime.utcnow().isoformat(),
-                "isRead": True
-            }
+            {"sender": "user", "message": ticket.message, "createdAt": now_iso, "isRead": True}
         ]
 
-        if guided.get("use_guided") and guided.get("clarifying_question"):
-            messages.append({
-                "sender": "ai",
-                "message": guided["clarifying_question"],
-                "createdAt": datetime.utcnow().isoformat(),
-                "isRead": False
-            })
+        # Part 1 & 2: Match by trigger_phrases (converted or structured guided) — guided overrides article dump
+        matched = match_flow_by_trigger(ticket.message, kb_articles_full)
+        if matched and matched.get("type") == "guided":
+            first_msg = flow_get_first_message(matched.get("flow") or [])
+            first_msg = await _humanize_reply(first_msg)
+            print("FLOW MATCHED:", matched.get("title"))  # Part 8 debug
+            messages.append({"sender": "ai", "message": first_msg, "createdAt": now_iso, "isRead": False})
             summary = (ticket.message[:200] + "..." if len(ticket.message) > 200 else ticket.message)
             ticket_data = {
                 "userId": uid,
@@ -284,58 +312,95 @@ async def create_ticket(
                 "description": ticket.message,
                 "status": "in_progress",
                 "escalated": False,
-                "category": None,
+                "category": matched.get("category"),
                 "aiReply": None,
                 "confidence": 0.0,
                 "knowledge_used": [],
                 "internal_note": "",
                 "messages": messages,
-                "createdAt": datetime.utcnow().isoformat(),
+                "createdAt": now_iso,
                 "ai_mode": "guided",
-                "current_step": 0,
+                "flow_id": matched.get("id"),
+                "current_step": (matched.get("flow") or [{}])[0].get("step_id", "step_1"),
                 "troubleshooting_context": {},
                 "resolved": False,
-                "guided_article_id": guided.get("matched_article_id"),
+                "completed": False,
+                "last_activity_timestamp": now_iso,
+                "confusion_count": 0,
+                "current_step_options": (matched.get("flow") or [{}])[0].get("options", []) if matched.get("flow") else [],
             }
+            if matched.get("_legacy_branches"):
+                ticket_data["guided_article_id"] = matched.get("id")
         else:
-            kb_text = "\n\n".join([
-                f"Title: {kb['title']}\nContent: {kb['content']}"
-                for kb in knowledge_base
-            ])
-            ai_result = await analyze_ticket_with_ai(ticket.message, kb_text, knowledge_base)
-            if ai_result.get("status") == "auto_resolved" and ai_result.get("aiReply"):
-                messages.append({
-                    "sender": "ai",
-                    "message": ai_result.get("aiReply"),
+            guided = _try_guided_mode(ticket.message, kb_articles_full)
+            if guided.get("use_guided") and guided.get("clarifying_question"):
+                first_msg = await _humanize_reply(guided["clarifying_question"])
+                messages.append({"sender": "ai", "message": first_msg, "createdAt": now_iso, "isRead": False})
+                summary = (ticket.message[:200] + "..." if len(ticket.message) > 200 else ticket.message)
+                ticket_data = {
+                    "userId": uid,
+                    "message": ticket.message,
+                    "summary": summary,
+                    "subject": summary,
+                    "description": ticket.message,
+                    "status": "in_progress",
+                    "escalated": False,
+                    "category": None,
+                    "aiReply": None,
+                    "confidence": 0.0,
+                    "knowledge_used": [],
+                    "internal_note": "",
+                    "messages": messages,
+                    "createdAt": now_iso,
+                    "ai_mode": "guided",
+                    "flow_id": guided.get("matched_article_id"),
+                    "current_step": 0,
+                    "troubleshooting_context": {},
+                    "resolved": False,
+                    "completed": False,
+                    "last_activity_timestamp": now_iso,
+                    "confusion_count": 0,
+                    "guided_article_id": guided.get("matched_article_id"),
+                }
+            else:
+                kb_text = "\n\n".join([
+                    f"Title: {kb['title']}\nContent: {kb['content']}"
+                    for kb in knowledge_base
+                ])
+                ai_result = await analyze_ticket_with_ai(ticket.message, kb_text, knowledge_base)
+                if ai_result.get("status") == "auto_resolved" and ai_result.get("aiReply"):
+                    messages.append({
+                        "sender": "ai",
+                        "message": ai_result.get("aiReply"),
+                        "createdAt": datetime.utcnow().isoformat(),
+                        "isRead": False
+                    })
+                ticket_status = ai_result.get("status", "needs_escalation")
+                if ticket_status == "needs_escalation":
+                    ticket_status = "escalated"
+                is_escalated = (ticket_status == "escalated")
+                summary = ai_result.get("summary", "")
+                resolved = (ticket_status == "auto_resolved")
+                ticket_data = {
+                    "userId": uid,
+                    "message": ticket.message,
+                    "summary": summary,
+                    "subject": summary or (ticket.message[:200] + "..." if len(ticket.message) > 200 else ticket.message),
+                    "description": ticket.message,
+                    "status": ticket_status,
+                    "escalated": is_escalated,
+                    "category": ai_result.get("category"),
+                    "aiReply": ai_result.get("aiReply"),
+                    "confidence": ai_result.get("confidence", 0.0),
+                    "knowledge_used": ai_result.get("knowledge_used", []),
+                    "internal_note": ai_result.get("internal_note", ""),
+                    "messages": messages,
                     "createdAt": datetime.utcnow().isoformat(),
-                    "isRead": False
-                })
-            ticket_status = ai_result.get("status", "needs_escalation")
-            if ticket_status == "needs_escalation":
-                ticket_status = "escalated"
-            is_escalated = (ticket_status == "escalated")
-            summary = ai_result.get("summary", "")
-            resolved = (ticket_status == "auto_resolved")
-            ticket_data = {
-                "userId": uid,
-                "message": ticket.message,
-                "summary": summary,
-                "subject": summary or (ticket.message[:200] + "..." if len(ticket.message) > 200 else ticket.message),
-                "description": ticket.message,
-                "status": ticket_status,
-                "escalated": is_escalated,
-                "category": ai_result.get("category"),
-                "aiReply": ai_result.get("aiReply"),
-                "confidence": ai_result.get("confidence", 0.0),
-                "knowledge_used": ai_result.get("knowledge_used", []),
-                "internal_note": ai_result.get("internal_note", ""),
-                "messages": messages,
-                "createdAt": datetime.utcnow().isoformat(),
-                "ai_mode": "article",
-                "current_step": 0,
-                "troubleshooting_context": {},
-                "resolved": resolved,
-            }
+                    "ai_mode": "article",
+                    "current_step": 0,
+                    "troubleshooting_context": {},
+                    "resolved": resolved,
+                }
         if organization_id is not None:
             ticket_data["organization_id"] = organization_id
             ticket_data["created_by"] = uid
@@ -771,9 +836,89 @@ async def add_message_to_ticket(
             and ticket_data.get("ai_mode") == "guided"
             and not ticket_data.get("resolved")
         ):
+            user_msg = message_request.message
+            now_iso = datetime.utcnow().isoformat()
+            context = dict(ticket_data.get("troubleshooting_context") or {})
+            confusion = int(ticket_data.get("confusion_count") or 0)
+            completed = bool(ticket_data.get("completed"))
+
+            # Part 5: Resolution detection
+            if is_resolution_message(user_msg):
+                ai_reply = "Awesome! Glad we got that sorted. If you need anything else, I'm here."
+                ai_reply = await _humanize_reply(ai_reply)
+                messages.append({"sender": "ai", "message": ai_reply, "createdAt": now_iso, "isRead": False})
+                ticket_ref.update({
+                    "messages": messages,
+                    "resolved": True,
+                    "status": "resolved",
+                    "troubleshooting_context": {**context, "resolved_at": now_iso},
+                    "last_activity_timestamp": now_iso,
+                    "completed": True,
+                })
+                print("COMPLETED:", True, "CONTEXT:", context)
+                return {"message": "Message added successfully", "ticket_id": ticket_id, "new_message": new_message, "ai_reply": {"sender": "ai", "message": ai_reply, "createdAt": now_iso}, "resolved": True}
+
+            # Part 6: Escalation — "no"/"still not working" or 3x confusion
+            if is_escalation_message(user_msg) or (completed and user_msg.strip().lower() in ("no", "n", "not yet", "didn't work")):
+                escalation_msg = "I'm going to escalate this to a support specialist for further assistance."
+                escalation_msg = await _humanize_reply(escalation_msg)
+                messages.append({"sender": "ai", "message": escalation_msg, "createdAt": now_iso, "isRead": False})
+                ticket_ref.update({
+                    "messages": messages,
+                    "ai_mode": "ai_free",
+                    "status": "escalated",
+                    "escalated": True,
+                    "internal_note": (ticket_data.get("internal_note") or "") + f" [Escalated by user/flow at {now_iso}]",
+                    "last_activity_timestamp": now_iso,
+                })
+                print("ESCALATED: ai_mode=ai_free")
+                return {"message": "Message added successfully", "ticket_id": ticket_id, "new_message": new_message, "ai_reply": {"sender": "ai", "message": escalation_msg, "createdAt": now_iso}}
+
+            flow_id = ticket_data.get("flow_id") or ticket_data.get("guided_article_id")
+            art_doc = db.collection("knowledge_base").document(flow_id).get() if flow_id else None
+            article_raw = {"id": art_doc.id, **art_doc.to_dict()} if art_doc and art_doc.exists else None
+            normalized = normalize_article_to_flow(article_raw) if article_raw else None
+
+            # New flow[] state machine (no legacy branches)
+            if normalized and normalized.get("flow") and not normalized.get("_legacy_branches"):
+                flow = normalized.get("flow") or []
+                current_step_id = ticket_data.get("current_step") or (flow[0].get("step_id") if flow else "step_1")
+                next_step, reply_msg, new_context = flow_advance(flow, current_step_id, context, user_msg)
+                if next_step is None and "Did this resolve" in (reply_msg or ""):
+                    completed = True
+                if reply_msg and ("I didn't catch" in reply_msg or "Please choose" in reply_msg):
+                    confusion = confusion + 1
+                else:
+                    confusion = 0
+                new_step_id = next_step.get("step_id") if next_step else current_step_id
+                if next_step is None:
+                    new_step_id = current_step_id
+                reply_msg = await _humanize_reply(reply_msg or "Let me know when you've completed this step.")
+                messages.append({"sender": "ai", "message": reply_msg, "createdAt": now_iso, "isRead": False})
+                step_options = next_step.get("options", []) if next_step else []
+                update_data = {
+                    "messages": messages,
+                    "troubleshooting_context": new_context,
+                    "current_step": new_step_id,
+                    "last_activity_timestamp": now_iso,
+                    "confusion_count": min(confusion, 10),
+                    "completed": completed,
+                    "current_step_options": step_options,
+                }
+                if confusion >= 3:
+                    update_data["ai_mode"] = "ai_free"
+                    update_data["status"] = "escalated"
+                    update_data["escalated"] = True
+                print("STEP:", new_step_id, "CONTEXT:", new_context, "COMPLETED:", completed)
+                ticket_ref.update(update_data)
+                return {"message": "Message added successfully", "ticket_id": ticket_id, "new_message": new_message, "ai_reply": {"sender": "ai", "message": reply_msg, "createdAt": now_iso, "options": step_options}, "resolved": False}
+
+            # Legacy branches: existing _guided_flow_respond
             guided_article_id = ticket_data.get("guided_article_id")
             guided_article = None
-            if guided_article_id:
+            if guided_article_id and article_raw and article_raw.get("id") == guided_article_id:
+                guided_article = article_raw
+            elif guided_article_id:
                 art_ref = db.collection("knowledge_base").document(guided_article_id)
                 art_doc = art_ref.get()
                 if art_doc.exists:
@@ -781,10 +926,11 @@ async def add_message_to_ticket(
             ai_reply, new_context, resolved = _guided_flow_respond(
                 ticket_data, message_request.message, guided_article
             )
+            ai_reply = await _humanize_reply(ai_reply)
             ai_message = {
                 "sender": "ai",
                 "message": ai_reply,
-                "createdAt": datetime.utcnow().isoformat(),
+                "createdAt": now_iso,
                 "isRead": False
             }
             messages.append(ai_message)
@@ -792,11 +938,14 @@ async def add_message_to_ticket(
                 "messages": messages,
                 "troubleshooting_context": new_context,
                 "current_step": new_context.get("step", 0),
+                "last_activity_timestamp": now_iso,
             }
             if resolved:
                 update_data["resolved"] = True
                 update_data["status"] = "resolved"
+                update_data["completed"] = True
             ticket_ref.update(update_data)
+            print("STEP:", new_context.get("step"), "CONTEXT:", new_context, "COMPLETED:", resolved)
             return {
                 "message": "Message added successfully",
                 "ticket_id": ticket_id,

@@ -4,10 +4,11 @@ Knowledge Base routes (Admin only)
 
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any  # noqa: F401
 from datetime import datetime
 from firebase_admin import firestore
 from middleware import require_admin_or_above, require_super_admin
+from flow_engine import normalize_article_to_flow, convert_legacy_content_to_flow
 
 router = APIRouter()
 
@@ -21,9 +22,12 @@ class KnowledgeBaseArticle(BaseModel):
     title: str
     content: str
     category: Optional[str] = None
+    type: Optional[str] = None  # "static" | "guided"
+    trigger_phrases: Optional[List[str]] = None
+    flow: Optional[List[Dict[str, Any]]] = None
     guided_flow: Optional[bool] = False
-    guided_branches: Optional[Dict[str, Any]] = None  # e.g. {"iphone": {"steps": ["..."]}, "android": {"steps": [...]}}
-    branches: Optional[Dict[str, Any]] = None  # e.g. {"iphone": {"step1": "...", "step2": "..."}, "android": {"step1": "...", "step2": "..."}}
+    guided_branches: Optional[Dict[str, Any]] = None
+    branches: Optional[Dict[str, Any]] = None
 
 
 class KnowledgeBaseResponse(BaseModel):
@@ -59,6 +63,12 @@ async def create_article(
             "created_by_name": created_by_name,
             "createdAt": datetime.utcnow().isoformat(),
         }
+        if getattr(article, "type", None):
+            article_data["type"] = article.type
+        if getattr(article, "trigger_phrases", None) is not None:
+            article_data["trigger_phrases"] = article.trigger_phrases
+        if getattr(article, "flow", None) is not None:
+            article_data["flow"] = article.flow
         if article.guided_flow:
             article_data["guided_flow"] = True
             if article.guided_branches:
@@ -101,6 +111,9 @@ async def get_articles(current_user: dict = Depends(require_admin_or_above)):
                 "guided_flow": article_data.get("guided_flow", False),
                 "guided_branches": article_data.get("guided_branches"),
                 "branches": article_data.get("branches"),
+                "type": article_data.get("type"),
+                "trigger_phrases": article_data.get("trigger_phrases"),
+                "flow": article_data.get("flow"),
             })
         result.sort(key=lambda x: x.get("createdAt", ""), reverse=True)
         return {"articles": result}
@@ -143,12 +156,52 @@ async def update_article(
             updates["guided_branches"] = article.guided_branches
         if hasattr(article, "branches") and article.branches is not None:
             updates["branches"] = article.branches
+        if hasattr(article, "type") and article.type is not None:
+            updates["type"] = article.type
+        if hasattr(article, "trigger_phrases") and article.trigger_phrases is not None:
+            updates["trigger_phrases"] = article.trigger_phrases
+        if hasattr(article, "flow") and article.flow is not None:
+            updates["flow"] = article.flow
         article_ref.update(updates)
         return {"message": "Article updated successfully", "id": article_id, "title": article.title, "content": article.content}
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error updating article: {str(e)}")
+
+
+@router.post("/audit-and-convert")
+async def audit_and_convert_articles(current_user: dict = Depends(require_super_admin)):
+    """
+    Part 1: Scan all KB articles; convert legacy/static content to guided flow format.
+    Sets type=guided, trigger_phrases, flow on articles that were missing type or had type=static.
+    """
+    try:
+        db = get_db()
+        organization_id = current_user.get("organization_id")
+        if organization_id is None:
+            raise HTTPException(status_code=400, detail="Organization required")
+        ref = db.collection("knowledge_base").where("organization_id", "==", organization_id)
+        converted = 0
+        for doc in ref.stream():
+            data = doc.to_dict()
+            art_type = (data.get("type") or "").strip().lower()
+            if art_type not in ("guided",) or not data.get("flow"):
+                title = data.get("title", "")
+                content = data.get("content", "")
+                category = data.get("category", "")
+                result = convert_legacy_content_to_flow(title, content, category)
+                doc.reference.update({
+                    "type": "guided",
+                    "trigger_phrases": result.get("trigger_phrases", []),
+                    "flow": result.get("flow", []),
+                })
+                converted += 1
+        return {"message": "Audit complete", "converted_count": converted}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.delete("/{article_id}")

@@ -69,7 +69,8 @@ ESCALATION_PHRASES = (
 )
 CONFIRMATION_KEYWORDS = (
     "done", "completed", "yes", "finished", "ok", "ready", "did it", "completed it",
-    "i'm there", "im there", "i am there", "ive gone", "i've gone", "got it", "did that",
+    "i'm there", "im there", "i am there", "i'm here", "im here", "i am here",
+    "ive gone", "i've gone", "got it", "did that",
     "next", "fixed", "that worked",
 )
 
@@ -189,20 +190,34 @@ def _parse_content_by_platform(content: str, platform_headers: List[str]) -> Dic
                 section = part
                 break
         if not section:
-            # Fallback: try splitting by platform name as delimiter
-            idx = content_lower.find(p_lower)
-            if idx >= 0:
-                start = idx + len(p_lower)
-                next_platform_start = len(content)
+            # Find platform as SECTION HEADER (start of line), not in mid-sentence
+            header_pat = rf"(?m)^\s*[#\-]*\s*{re.escape(platform)}\s*[:\-\s]*(?:\n|$)"
+            m = re.search(header_pat, content, re.I)
+            if m:
+                start = m.end()
+                end = len(content)
                 for op in platform_headers:
-                    if op.lower() != p_lower:
-                        ni = content_lower.find(op.lower(), start)
-                        if 0 <= ni < next_platform_start:
-                            next_platform_start = ni
-                section = content[start:next_platform_start]
+                    if op.lower() == p_lower:
+                        continue
+                    m2 = re.search(rf"(?m)^\s*[#\-]*\s*{re.escape(op)}\s*[:\-\s]*(?:\n|$)", content[start:], re.I)
+                    if m2 and m2.start() < end - start:
+                        end = start + m2.start()
+                section = content[start:end].strip()
             else:
-                section = content
+                idx = content_lower.find(p_lower)
+                if idx >= 0:
+                    start = idx + len(p_lower)
+                    next_platform_start = len(content)
+                    for op in platform_headers:
+                        if op.lower() != p_lower:
+                            ni = content_lower.find(op.lower(), start)
+                            if 0 <= ni < next_platform_start:
+                                next_platform_start = ni
+                    section = content[start:next_platform_start]
+                else:
+                    section = content
         steps = _parse_numbered_steps(section)
+        steps = _filter_intro_sentences(steps)
         # Strip any mention of OTHER platforms from each step
         other_platforms = [x.lower() for x in platform_headers if x.lower() != p_lower]
         cleaned = []
@@ -217,6 +232,25 @@ def _parse_content_by_platform(content: str, platform_headers: List[str]) -> Dic
             cleaned.append(cleaned_s.strip() or s)
         result[p_lower] = cleaned if cleaned else _parse_numbered_steps(content)
     return result
+
+
+def _filter_intro_sentences(steps: List[str]) -> List[str]:
+    """Skip intro sentences like 'you can configure your company email on your iphone'."""
+    if not steps:
+        return steps
+    action_verbs = r"\b(go|tap|open|select|click|enter|add|press|choose|navigate|sign in|log in)\b"
+    actionable = []
+    for s in steps:
+        t = s.strip()
+        if len(t) < 12:
+            continue
+        t_lower = t.lower()
+        if re.match(r"^you can\s+(?:configure|set up|add)\s+[^.]+on your\s+(?:iphone|android)", t_lower):
+            continue
+        if re.match(r"^[^.]*(?:configure|set up)\s+[^.]*on your\s+(?:iphone|android)\s*\.?$", t_lower) and not re.search(action_verbs, t_lower):
+            continue
+        actionable.append(s)
+    return actionable if actionable else steps
 
 
 def _parse_numbered_steps(content: str) -> List[str]:

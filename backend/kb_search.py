@@ -91,18 +91,37 @@ def _field_text(article: Dict[str, Any], key: str) -> str:
     return (str(val) or "").lower()
 
 
+def _word_match(text: str, keyword: str) -> bool:
+    """True if keyword appears as whole word in text (avoids 'set' matching 'reset')."""
+    if not text or not keyword:
+        return False
+    return bool(re.search(rf"\b{re.escape(keyword)}\b", text, re.I))
+
+
 def _article_intent_hints(article: Dict[str, Any]) -> set:
-    """Extract intent hints from article title/category/content (first 500 chars)."""
+    """
+    Extract intent hints from article. Title/category weighted heavily.
+    Avoid adding email_setup just because 'email' appears (password reset often mentions email).
+    """
     title = _field_text(article, "title")
     category = _field_text(article, "category")
     content = _field_text(article, "content")[:500]
-    combined = f"{title} {category} {content}"
+    title_tokens = set(re.findall(r"\b\w{3,}\b", title))
+    combined = f"{title} {category}"
     tokens = set(re.findall(r"\b\w{3,}\b", combined))
     hints = set()
-    if tokens & INTENT_PASSWORD_RESET or "password" in combined:
+
+    # Password reset: title has reset/forgot/password
+    if tokens & INTENT_PASSWORD_RESET:
         hints.add("password_reset")
-    if tokens & INTENT_EMAIL_SETUP or "email" in title or "setup" in title or "set up" in combined:
+
+    # Email setup: title must suggest setup (not just "email" - that appears in password articles too)
+    setup_signals = {"setup", "configure", "add", "account", "company"}
+    if title_tokens & setup_signals or "set up" in title or "setup" in title:
         hints.add("email_setup")
+    elif (title_tokens & {"company", "email"}) and "password" not in title and "reset" not in title:
+        hints.add("email_setup")
+
     if tokens & INTENT_VPN:
         hints.add("vpn")
     return hints
@@ -141,31 +160,31 @@ def score_article(
     if phrase in title:
         score += 3.0
 
-    # Per keyword in title: +2
+    # Per keyword in title: +2 (whole-word match: avoid 'set' matching 'reset')
     for kw in keywords:
-        if kw in title:
+        if _word_match(title, kw):
             score += 2.0
             title_matches += 1
 
     # Category match: +2 (once)
     for kw in keywords:
-        if category and kw in category:
+        if category and _word_match(category, kw):
             score += 2.0
             break
 
     # Per keyword in content: +1
     for kw in keywords:
-        if kw in content:
+        if _word_match(content, kw):
             score += 1.0
             content_matches += 1
 
     # Tags/summary: +1 each if present
     for kw in keywords:
-        if tags_text and kw in tags_text:
+        if tags_text and _word_match(tags_text, kw):
             score += 1.0
             break
     for kw in keywords:
-        if summary and kw in summary:
+        if summary and _word_match(summary, kw):
             score += 1.0
             break
 
@@ -174,17 +193,18 @@ def score_article(
     if total_matches >= 2:
         score += 3.0
 
-    # Intent alignment
+    # Intent alignment: strong penalty for wrong topic
     hints = _article_intent_hints(article)
     if intent != "unclear":
         if intent in hints:
             score += 4.0
         else:
             # Contradiction: user wants email setup, article is password reset (or vice versa)
+            # Strong penalty so "Reset Password" never wins for "set up company email"
             if intent == "email_setup" and "password_reset" in hints and "email_setup" not in hints:
-                score -= 5.0
+                score -= 10.0
             elif intent == "password_reset" and "email_setup" in hints and "password_reset" not in hints:
-                score -= 5.0
+                score -= 10.0
 
     return max(0.0, score)
 

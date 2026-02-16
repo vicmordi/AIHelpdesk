@@ -137,34 +137,38 @@ def _get_article_branches(art: dict) -> dict:
 def _try_guided_mode(user_message: str, kb_articles_full: List[dict]) -> dict:
     """
     If a matching article has guided_flow with multiple branches, return clarifying question.
-    Guided mode has PRIORITY: we never return full article for guided articles.
-    kb_articles_full: list of { "id", "title", "content", "guided_flow", "guided_branches" or "branches" }.
+    Uses kb_search intent-aware scoring to avoid wrong matches.
     Returns: { "use_guided": True, "clarifying_question": str, "matched_article_id": str } or { "use_guided": False }.
     """
-    msg_lower = (user_message or "").lower().strip()
-    if not msg_lower:
-        return {"use_guided": False}
-    # Significant words from user message (length > 2)
-    msg_words = set(w for w in msg_lower.split() if len(w) > 2)
-    for art in kb_articles_full:
-        if not art.get("guided_flow"):
-            continue
-        branches = _get_article_branches(art)
-        if not isinstance(branches, dict) or len(branches) < 2:
-            continue
-        title = (art.get("title") or "").lower()
-        content = (art.get("content") or "").lower()
-        combined = f"{title} {content}"
-        if not combined.strip():
-            continue
-        # Match: any significant word from message appears in article title/content
-        if not msg_words:
-            match = True
-        else:
-            match = any(w in combined for w in msg_words)
-        if not match:
-            continue
-        # Build clarifying message (exact style: device question with emoji numbers)
+    try:
+        articles_with_branches = []
+        for art in kb_articles_full:
+            if not art.get("guided_flow"):
+                continue
+            branches = _get_article_branches(art)
+            if not isinstance(branches, dict) or len(branches) < 2:
+                continue
+            articles_with_branches.append({
+                "id": art.get("id"),
+                "title": art.get("title", ""),
+                "content": art.get("content", ""),
+                "category": art.get("category", ""),
+                "tags": art.get("tags"),
+                "summary": art.get("summary", ""),
+            })
+        if not articles_with_branches:
+            return {"use_guided": False}
+        best_article, score, _ = select_best_article(
+            articles_with_branches, extract_keywords(user_message),
+            original_query=user_message
+        )
+        if not best_article or score < MIN_SCORE_THRESHOLD:
+            return {"use_guided": False}
+        # Build clarifying question
+        art_full = next((a for a in kb_articles_full if a.get("id") == best_article.get("id")), None)
+        if not art_full:
+            return {"use_guided": False}
+        branches = _get_article_branches(art_full)
         branch_names = list(branches.keys())
         option_lines = []
         for i, key in enumerate(branch_names):
@@ -176,13 +180,14 @@ def _try_guided_mode(user_message: str, kb_articles_full: List[dict]) -> dict:
             "Before we begin, what device are you using?\n\n"
             + "\n".join(option_lines)
         )
-        print("GUIDED MODE TRIGGERED:", art.get("title"))  # DEBUG
+        print("GUIDED MODE TRIGGERED:", best_article.get("title"))  # DEBUG
         return {
             "use_guided": True,
             "clarifying_question": clarifying_question,
-            "matched_article_id": art.get("id"),
+            "matched_article_id": best_article.get("id"),
         }
-    return {"use_guided": False}
+    except Exception:
+        return {"use_guided": False}
 
 
 def _get_branch_steps(branch_data) -> List[str]:

@@ -217,27 +217,40 @@ def _get_branch_steps_legacy(branch_data: Any) -> List[str]:
 
 def match_flow_by_trigger(user_message: str, articles: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
     """
-    Search KB by trigger_phrases; return first article where type is guided and triggers match.
+    Search KB by relevance scoring (intent-aware). Returns best guided article only if score >= threshold.
+    Uses kb_search to avoid wrong matches (e.g. password article for "set up company email").
     """
-    msg_lower = (user_message or "").lower().strip()
-    if not msg_lower:
-        return None
-    msg_words = set(w for w in msg_lower.split() if len(w) > 2)
-    for art in articles:
-        normalized = normalize_article_to_flow(art)
-        if not normalized or normalized.get("type") != "guided":
-            continue
-        triggers = normalized.get("trigger_phrases") or []
-        title = (normalized.get("title") or "").lower()
-        content = (art.get("content") or "").lower()
-        combined = f"{title} {' '.join(str(t) for t in triggers)} {content[:500]}"
-        if msg_words and not any(w in combined for w in msg_words):
-            continue
-        if triggers and not any(t in msg_lower for t in (str(ph).lower() for ph in triggers[:5])):
-            if not any(w in title for w in msg_words):
+    try:
+        from kb_search import extract_keywords, select_best_article, MIN_SCORE_THRESHOLD
+        guided_articles = []
+        for art in articles:
+            normalized = normalize_article_to_flow(art)
+            if not normalized or normalized.get("type") != "guided":
                 continue
-        return normalized
-    return None
+            guided_articles.append({
+                "id": art.get("id"),
+                "title": art.get("title", ""),
+                "content": art.get("content", ""),
+                "category": art.get("category", ""),
+                "tags": art.get("tags"),
+                "summary": art.get("summary", ""),
+            })
+        if not guided_articles:
+            return None
+        keywords = extract_keywords(user_message)
+        best_article, score, _ = select_best_article(
+            guided_articles, keywords, original_query=user_message
+        )
+        if not best_article or score < MIN_SCORE_THRESHOLD:
+            return None
+        # Map back to full article for normalization
+        art_by_id = {a.get("id"): a for a in articles if a.get("id")}
+        full_art = art_by_id.get(best_article.get("id"))
+        if not full_art:
+            return None
+        return normalize_article_to_flow(full_art)
+    except Exception:
+        return None
 
 
 def is_resolution_message(message: str) -> bool:

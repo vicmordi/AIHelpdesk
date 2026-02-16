@@ -14,6 +14,8 @@ from config import OPENAI_API_KEY
 from middleware import verify_token, verify_admin, get_current_user, require_admin_or_above, require_super_admin
 from flow_engine import (
     normalize_article_to_flow,
+    convert_article_to_structured_flow,
+    get_flat_steps_from_article,
     get_article_type,
     is_flow_capable,
     flow_get_first_message,
@@ -22,8 +24,15 @@ from flow_engine import (
     get_escalation_reply,
     is_resolution_message,
     is_escalation_message,
+    is_confirmation_message,
     log_flow_event,
     SUPPORT_AGENT_SYSTEM,
+)
+from conversational_layer import (
+    generate_flow_intro,
+    generate_flow_progress,
+    generate_flow_completion,
+    generate_flow_escalation,
 )
 from kb_search import (
     extract_keywords,
@@ -112,13 +121,68 @@ Respond in a friendly, human-like way—like a real helpdesk agent. Start with a
 
 def _escalate_no_kb_match() -> dict:
     """Standard escalation when no acceptable KB match (Step 4)."""
+    msg = (
+        _build_strict_flow_escalation_message()
+        if USE_STRICT_FLOW
+        else "I could not find a matching solution in your organization's knowledge base. I am escalating this to a support specialist."
+    )
     return {
         "status": "pending_assignment",
         "escalated": True,
         "internal_note": "AI unable to find KB match",
         "aiReply": None,
-        "user_message": "I could not find a matching solution in your organization's knowledge base. I am escalating this to a support specialist.",
+        "user_message": msg,
     }
+
+
+# --- Strict Flow: KB steps only, OpenAI conversational wrapping ---
+USE_STRICT_FLOW = True  # Use OpenAI for tone, KB for steps only
+
+
+def _build_strict_flow_first_message(article: dict, topic: str, steps: list, has_device_choice: bool) -> str:
+    """
+    Build first message: OpenAI intro + Step 1 from KB (or device choice).
+    OpenAI generates tone only. Steps come strictly from KB.
+    """
+    intro = generate_flow_intro(openai_client, topic)
+    if has_device_choice:
+        structured = convert_article_to_structured_flow(article)
+        platform = structured.get("_platform_steps") or structured.get("_legacy_branches") or {}
+        options = list(platform.keys()) if isinstance(platform, dict) else []
+        opts_txt = "\n".join(f"{i+1}️⃣ {k.replace('-', ' ').title()}" for i, k in enumerate(options[:5]))
+        return f"{intro}\n\nWhat device are you using?\n\n{opts_txt}\n\nReply with the number or device name."
+    if not steps:
+        return f"{intro}\n\nI don't have step-by-step instructions for this. Would you like me to escalate to support?"
+    step_1 = steps[0]
+    return f"{intro}\n\n**Step 1:** {step_1}\n\nLet me know once you've done this."
+
+
+def _build_strict_flow_step_message(article: dict, step_index: int, total_steps: int, step_text: str, is_last: bool) -> str:
+    """
+    Build step message: OpenAI progress + Step X from KB.
+    OpenAI generates tone only. Step text comes strictly from KB.
+    """
+    topic = (article.get("title") or "this").lower()
+    if step_index == 0 and total_steps >= 1:
+        intro = generate_flow_intro(openai_client, topic)
+        return f"{intro}\n\n**Step 1:** {step_text}\n\nLet me know once you've done this."
+    progress = generate_flow_progress(openai_client, step_index, total_steps)
+    step_num = step_index + 1
+    if is_last:
+        return f"{progress}\n\n**Step {step_num}:** {step_text}\n\nLet me know once you've completed this step."
+    return f"{progress}\n\n**Step {step_num}:** {step_text}\n\nLet me know once this is done."
+
+
+def _build_strict_flow_completion_message(article: dict) -> str:
+    """Build completion: OpenAI completion + confirm prompt. No new steps."""
+    topic = (article.get("title") or "this").lower()
+    completion = generate_flow_completion(openai_client, topic)
+    return f"{completion}\n\nIs everything working correctly now?"
+
+
+def _build_strict_flow_escalation_message() -> str:
+    """Build escalation message via OpenAI. No steps."""
+    return generate_flow_escalation(openai_client)
 
 
 class TicketRequest(BaseModel):
@@ -500,13 +564,29 @@ async def create_ticket(
                 summary_short = (ticket.message[:200] + "..." if len(ticket.message) > 200 else ticket.message)
                 normalized = normalize_article_to_flow(best_article)
                 flow = (normalized or {}).get("flow") or []
-                use_flow = is_flow_capable(best_article) and flow and len(flow) > 0
+                use_flow = is_flow_capable(best_article) and (flow or convert_article_to_structured_flow(best_article))
                 if use_flow:
-                    # Step-by-step mode only. Send step 1, wait for confirmation.
-                    first_msg = flow_get_first_message(flow, article_title=(best_article.get("title") or ""))
+                    # STRICT FLOW: OpenAI for tone, KB for steps only
+                    steps, has_device_choice = get_flat_steps_from_article(best_article)
+                    topic = (best_article.get("title") or "this").lower()
+                    if USE_STRICT_FLOW and (steps or has_device_choice):
+                        first_msg = _build_strict_flow_first_message(best_article, topic, steps, has_device_choice)
+                    else:
+                        first_msg = flow_get_first_message(flow, article_title=(best_article.get("title") or ""))
                     first_msg = humanize_reply(first_msg)
                     messages.append({"sender": "ai", "message": first_msg, "createdAt": now_iso, "isRead": False})
                     log_flow_event("flow_start", article_id=best_article.get("id"), title=best_article.get("title"), article_type=get_article_type(best_article))
+                    # Strict flow state: step_index 0-based, flow_started, flow_completed
+                    ctx = {
+                        "article_id": best_article.get("id"),
+                        "step_index": 0,
+                        "flow_started": True,
+                        "flow_completed": False,
+                        "branch_selected": None,
+                        "current_step_index": 0,
+                    }
+                    if has_device_choice:
+                        ctx["_awaiting_device"] = True
                     ticket_data = {
                         "userId": uid,
                         "message": ticket.message,
@@ -524,18 +604,13 @@ async def create_ticket(
                         "createdAt": now_iso,
                         "ai_mode": "guided",
                         "flow_id": best_article.get("id"),
-                        "current_step": (flow[0].get("step_id", "step_1") if flow else "step_1"),
-                        "troubleshooting_context": {
-                            "article_id": best_article.get("id"),
-                            "branch_selected": None,
-                            "current_step_index": 1,
-                            "flow_completed": False,
-                        },
+                        "current_step": "step_1",
+                        "troubleshooting_context": ctx,
                         "resolved": False,
                         "completed": False,
                         "last_activity_timestamp": now_iso,
                         "confusion_count": 0,
-                        "current_step_options": (flow[0].get("options", []) if flow else []),
+                        "current_step_options": [],
                     }
                     if normalized and normalized.get("_legacy_branches"):
                         ticket_data["guided_article_id"] = best_article.get("id")
@@ -1198,7 +1273,7 @@ async def add_message_to_ticket(
 
             # Part 6: Escalation — "no"/"still not working" or 3x confusion
             if is_escalation_message(user_msg) or (completed and user_msg.strip().lower() in ("no", "n", "not yet", "didn't work")):
-                escalation_msg = get_escalation_reply()
+                escalation_msg = _build_strict_flow_escalation_message() if USE_STRICT_FLOW else get_escalation_reply()
                 escalation_msg = humanize_reply(escalation_msg)
                 messages.append({"sender": "ai", "message": escalation_msg, "createdAt": now_iso, "isRead": False})
                 ticket_ref.update({
@@ -1229,6 +1304,11 @@ async def add_message_to_ticket(
                     })
                     return {"message": "Message added successfully", "ticket_id": ticket_id, "new_message": new_message, "ai_reply": {"sender": "ai", "message": ai_reply, "createdAt": now_iso}, "resolved": True}
                 completion_prompt = get_completion_reply()
+                if USE_STRICT_FLOW and context.get("flow_started") and context.get("article_id"):
+                    art_doc_temp = db.collection("knowledge_base").document(context["article_id"]).get()
+                    if art_doc_temp.exists:
+                        article_temp = {"id": art_doc_temp.id, **art_doc_temp.to_dict()}
+                        completion_prompt = _build_strict_flow_completion_message(article_temp)
                 messages.append({"sender": "ai", "message": humanize_reply(completion_prompt), "createdAt": now_iso, "isRead": False})
                 ticket_ref.update({
                     "messages": messages,
@@ -1242,6 +1322,97 @@ async def add_message_to_ticket(
             art_doc = db.collection("knowledge_base").document(flow_id).get() if flow_id else None
             article_raw = {"id": art_doc.id, **art_doc.to_dict()} if art_doc and art_doc.exists else None
             normalized = normalize_article_to_flow(article_raw) if article_raw else None
+
+            # STRICT FLOW: OpenAI tone + KB steps only (step_index 0-based, one step at a time)
+            if USE_STRICT_FLOW and context.get("flow_started") and article_raw:
+                device_context = context.get("device_type") or context.get("branch_selected")
+                awaiting_device = context.get("_awaiting_device")
+                msg_lower = user_msg.strip().lower()
+
+                # Device choice: parse selection, lock device, send Step 1
+                if awaiting_device:
+                    structured = convert_article_to_structured_flow(article_raw)
+                    platform = structured.get("_platform_steps") or structured.get("_legacy_branches") or {}
+                    keys = [k.lower() for k in (list(platform.keys()) if isinstance(platform, dict) else [])]
+                    choice = None
+                    if msg_lower.isdigit():
+                        idx = int(msg_lower)
+                        if 1 <= idx <= len(keys):
+                            choice = keys[idx - 1]
+                    for k in keys:
+                        if msg_lower == k or msg_lower in k or k in msg_lower:
+                            choice = k
+                            break
+                    if choice:
+                        new_ctx = {**context, "device_type": choice, "_awaiting_device": False}
+                        steps, _ = get_flat_steps_from_article(article_raw, choice)
+                        if steps:
+                            reply_msg = _build_strict_flow_step_message(article_raw, 0, len(steps), steps[0], len(steps) == 1)
+                            new_ctx["step_index"] = 0
+                        else:
+                            reply_msg = _build_strict_flow_completion_message(article_raw)
+                            new_ctx["flow_completed"] = True
+                        reply_msg = humanize_reply(reply_msg)
+                        messages.append({"sender": "ai", "message": reply_msg, "createdAt": now_iso, "isRead": False})
+                        ticket_ref.update({
+                            "messages": messages,
+                            "troubleshooting_context": new_ctx,
+                            "current_step": "step_1",
+                            "last_activity_timestamp": now_iso,
+                        })
+                        return {"message": "Message added successfully", "ticket_id": ticket_id, "new_message": new_message, "ai_reply": {"sender": "ai", "message": reply_msg, "createdAt": now_iso}}
+                    reply_msg = "I didn't catch that. Please choose your device (e.g. 1 or iPhone)."
+                    messages.append({"sender": "ai", "message": reply_msg, "createdAt": now_iso, "isRead": False})
+                    ticket_ref.update({"messages": messages, "last_activity_timestamp": now_iso})
+                    return {"message": "Message added successfully", "ticket_id": ticket_id, "new_message": new_message, "ai_reply": {"sender": "ai", "message": reply_msg, "createdAt": now_iso}}
+
+                # Step advancement: only on user confirmation, never repeat or go backward
+                if is_confirmation_message(msg_lower):
+                    steps, _ = get_flat_steps_from_article(article_raw, device_context)
+                    step_index = int(context.get("step_index", 0))
+                    total_steps = len(steps)
+
+                    if step_index < total_steps - 1:
+                        next_index = step_index + 1
+                        new_ctx = {**context, "step_index": next_index, "current_step_index": next_index}
+                        step_text = steps[next_index]
+                        is_last = next_index == total_steps - 1
+                        reply_msg = _build_strict_flow_step_message(article_raw, next_index, total_steps, step_text, is_last)
+                        reply_msg = humanize_reply(reply_msg)
+                        messages.append({"sender": "ai", "message": reply_msg, "createdAt": now_iso, "isRead": False})
+                        ticket_ref.update({
+                            "messages": messages,
+                            "troubleshooting_context": new_ctx,
+                            "current_step": f"step_{next_index + 1}",
+                            "last_activity_timestamp": now_iso,
+                        })
+                        return {"message": "Message added successfully", "ticket_id": ticket_id, "new_message": new_message, "ai_reply": {"sender": "ai", "message": reply_msg, "createdAt": now_iso}}
+                    else:
+                        # Final step confirmed: flow_completed, ask if working
+                        new_ctx = {**context, "flow_completed": True, "step_index": total_steps}
+                        reply_msg = _build_strict_flow_completion_message(article_raw)
+                        reply_msg = humanize_reply(reply_msg)
+                        messages.append({"sender": "ai", "message": reply_msg, "createdAt": now_iso, "isRead": False})
+                        ticket_ref.update({
+                            "messages": messages,
+                            "troubleshooting_context": new_ctx,
+                            "completed": True,
+                            "last_activity_timestamp": now_iso,
+                        })
+                        return {"message": "Message added successfully", "ticket_id": ticket_id, "new_message": new_message, "ai_reply": {"sender": "ai", "message": reply_msg, "createdAt": now_iso}}
+
+                # Re-send current step (user didn't confirm)
+                steps, _ = get_flat_steps_from_article(article_raw, device_context)
+                step_index = int(context.get("step_index", 0))
+                if steps and 0 <= step_index < len(steps):
+                    step_text = steps[step_index]
+                    total_steps = len(steps)
+                    is_last = step_index == total_steps - 1
+                    reply_msg = _build_strict_flow_step_message(article_raw, step_index, total_steps, step_text, is_last)
+                    reply_msg = humanize_reply(reply_msg)
+                    messages.append({"sender": "ai", "message": reply_msg, "createdAt": now_iso, "isRead": False})
+                    ticket_ref.update({"messages": messages, "last_activity_timestamp": now_iso})
+                    return {"message": "Message added successfully", "ticket_id": ticket_id, "new_message": new_message, "ai_reply": {"sender": "ai", "message": reply_msg, "createdAt": now_iso}}
 
             # New flow[] state machine (no legacy branches)
             if normalized and normalized.get("flow") and not normalized.get("_legacy_branches"):

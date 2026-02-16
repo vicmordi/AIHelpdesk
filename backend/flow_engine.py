@@ -281,6 +281,122 @@ def _parse_numbered_steps(content: str) -> List[str]:
     return parts[:15] if parts else [content.strip()[:400]]
 
 
+def convert_article_to_structured_flow(article: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """
+    Phase 1: Convert article to structured flow with flat steps from KB only.
+    - If article has type "flow" and steps: use directly.
+    - If legacy text: detect Step 1:, 1., -, line breaks; split into ordered steps.
+    Returns: { type: "flow", steps: ["...", "..."], id, title, _platform_steps?, _flow? }
+    """
+    if not article:
+        return None
+    art_id = article.get("id")
+    title = (article.get("title") or "").strip()
+    content = (article.get("content") or "").strip()
+
+    # Already structured: type "flow" with steps array
+    art_type = (article.get("type") or "").strip().lower()
+    existing_steps = article.get("steps")
+    if art_type == "flow" and isinstance(existing_steps, list) and len(existing_steps) > 0:
+        steps = []
+        for s in existing_steps:
+            if isinstance(s, str):
+                steps.append(s.strip()[:400])
+            elif isinstance(s, dict) and s.get("message"):
+                steps.append(str(s.get("message", "")).strip()[:400])
+            elif isinstance(s, dict) and s.get("text"):
+                steps.append(str(s.get("text", "")).strip()[:400])
+        steps = [s for s in steps if s]
+        if steps:
+            out = {"type": "flow", "id": art_id, "title": title, "steps": steps}
+            if article.get("_platform_steps"):
+                out["_platform_steps"] = article["_platform_steps"]
+            return out
+
+    # Flow with step objects: extract message/text
+    flow = article.get("flow")
+    if isinstance(flow, list) and len(flow) > 0:
+        steps = []
+        for s in flow:
+            if (s.get("step_id") or "").lower() == "device":
+                continue
+            msg = s.get("message") or s.get("text") or ""
+            if msg:
+                steps.append(str(msg).strip()[:400])
+        if steps:
+            out = {"type": "flow", "id": art_id, "title": title, "steps": steps}
+            if article.get("_platform_steps"):
+                out["_platform_steps"] = article["_platform_steps"]
+            if article.get("_legacy_branches"):
+                out["_legacy_branches"] = article["_legacy_branches"]
+            out["_flow"] = flow
+            return out
+
+    # Legacy branches (guided_branches / branches)
+    branches = article.get("guided_branches") or article.get("branches")
+    if isinstance(branches, dict) and len(branches) >= 2:
+        return {
+            "type": "flow",
+            "id": art_id,
+            "title": title,
+            "steps": [],
+            "_legacy_branches": branches,
+        }
+
+    # Legacy text: use convert_legacy_content_to_flow for platform detection + step parsing
+    converted = convert_legacy_content_to_flow(title, content, article.get("category", ""))
+    steps = []
+    platform_steps = converted.get("_platform_steps") or {}
+    flow_legacy = converted.get("flow") or []
+    if platform_steps:
+        out = {"type": "flow", "id": art_id, "title": title, "steps": [], "_platform_steps": platform_steps}
+        return out
+    for s in flow_legacy:
+        if (s.get("step_id") or "").lower() == "device":
+            continue
+        msg = s.get("message") or ""
+        if msg:
+            steps.append(str(msg).strip()[:400])
+    if not steps:
+        steps = _parse_numbered_steps(content or title)
+        steps = _filter_intro_sentences(steps)
+        seen = set()
+        deduped = []
+        for s in steps:
+            s_lower = s.lower().strip()
+            if s_lower and s_lower not in seen:
+                seen.add(s_lower)
+                deduped.append(s)
+        steps = deduped if deduped else [content[:400] if content else "Please follow the instructions provided."]
+    return {"type": "flow", "id": art_id, "title": title, "steps": steps}
+
+
+def get_flat_steps_from_article(article: Dict[str, Any], device_context: Optional[str] = None) -> Tuple[List[str], bool]:
+    """
+    Get flat list of step strings from article for strict one-step-at-a-time delivery.
+    Returns (steps, has_device_choice). If has_device_choice, caller must handle device selection first.
+    """
+    structured = convert_article_to_structured_flow(article)
+    if not structured or structured.get("type") != "flow":
+        return [], False
+    platform_steps = structured.get("_platform_steps") or {}
+    legacy_branches = structured.get("_legacy_branches") or {}
+    if platform_steps and device_context:
+        steps = platform_steps.get(str(device_context).lower(), [])
+        return list(steps) if isinstance(steps, list) else [], False
+    if platform_steps and not device_context:
+        return [], True  # Need device choice first
+    if legacy_branches and device_context:
+        branch = legacy_branches.get(str(device_context).lower()) or legacy_branches.get(str(device_context))
+        if isinstance(branch, list):
+            return list(branch), False
+        return _get_branch_steps_legacy(branch), False
+    if legacy_branches and not device_context:
+        return [], True
+    steps = structured.get("steps") or []
+    return [str(s) for s in steps if s], False
+
+
 def normalize_article_to_flow(article: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """
     Normalize article to unified shape: type, trigger_phrases, flow[].

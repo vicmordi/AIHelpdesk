@@ -13,12 +13,16 @@ let currentUser = null;
     }
     try {
         const userData = await apiRequest("/auth/me");
-        if (userData.role !== "admin") {
+        const adminRoles = ["admin", "super_admin", "support_admin"];
+        if (!adminRoles.includes(userData.role || "")) {
             alert("Access denied. Administrator privileges required. Your role: " + (userData.role || "employee"));
             window.location.href = "submit-ticket.html";
             return;
         }
         currentUser = userData;
+        // Show super_admin-only section (create support admin, update org code)
+        const superAdminSection = document.getElementById("super-admin-section");
+        if (superAdminSection) superAdminSection.style.display = (userData.role === "super_admin" ? "block" : "none");
         document.getElementById("user-email").textContent = userData.email || "";
         const avatar = document.getElementById("user-avatar");
         if (avatar) avatar.textContent = (userData.email || "A").charAt(0).toUpperCase();
@@ -259,6 +263,46 @@ document.getElementById('kb-form').addEventListener('submit', async (e) => {
         showError(`Failed to save article: ${error.message}`);
     }
 });
+
+// Create support admin (super_admin only)
+const createSupportAdminForm = document.getElementById('create-support-admin-form');
+if (createSupportAdminForm) {
+    createSupportAdminForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const email = document.getElementById('support-admin-email').value.trim();
+        const temporary_password = document.getElementById('support-admin-password').value;
+        try {
+            await apiRequest('/admin/create-support-admin', {
+                method: 'POST',
+                body: JSON.stringify({ email, temporary_password })
+            });
+            showSuccess('Support admin created. They must change password on first login.');
+            createSupportAdminForm.reset();
+        } catch (err) {
+            showError(err.message || 'Failed to create support admin');
+        }
+    });
+}
+
+// Update organization code (super_admin only)
+const updateOrgCodeForm = document.getElementById('update-org-code-form');
+if (updateOrgCodeForm) {
+    updateOrgCodeForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const organization_code = document.getElementById('new-org-code').value.trim();
+        if (!organization_code) return;
+        try {
+            await apiRequest('/organization/update-code', {
+                method: 'PUT',
+                body: JSON.stringify({ organization_code })
+            });
+            showSuccess('Organization code updated.');
+            updateOrgCodeForm.reset();
+        } catch (err) {
+            showError(err.message || 'Failed to update organization code');
+        }
+    });
+}
 
 // Store loaded articles for event delegation (View/Delete by data-article-id)
 let currentArticles = [];

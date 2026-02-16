@@ -57,6 +57,28 @@
         
         <!-- Knowledge Base Tab -->
         <div id="knowledge-base-tab" class="tab-content active">
+            <div id="super-admin-section" class="card" style="display: none;">
+                <div class="card-header">
+                    <h2>Organization (Super Admin)</h2>
+                </div>
+                <div class="card-body">
+                    <div class="form-group">
+                        <label>Create support admin</label>
+                        <form id="create-support-admin-form" style="display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end;">
+                            <input type="email" id="support-admin-email" placeholder="Email" required style="min-width: 200px;">
+                            <input type="password" id="support-admin-password" placeholder="Temporary password" required minlength="6" style="min-width: 160px;">
+                            <button type="submit" class="btn btn-primary">Create support admin</button>
+                        </form>
+                    </div>
+                    <div class="form-group" style="margin-top: 16px;">
+                        <label>Change organization code</label>
+                        <form id="update-org-code-form" style="display: flex; gap: 12px; align-items: center;">
+                            <input type="text" id="new-org-code" placeholder="New organization code" required style="min-width: 180px;">
+                            <button type="submit" class="btn btn-secondary">Update code</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
             <div class="card">
                 <div class="card-header">
                     <h2>Add Knowledge Base Article</h2>

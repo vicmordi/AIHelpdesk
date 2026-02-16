@@ -7,6 +7,7 @@ function getErrorMessage(detail) {
   const map = {
     "Email already registered": "This email is already registered.",
     "Invalid admin access code.": "Invalid admin access code.",
+    "Organization code already in use": "That organization code is already in use.",
   };
   return map[detail] || detail || "Registration failed.";
 }
@@ -29,6 +30,8 @@ if (registerRole && adminCodeGroup && adminCodeInput) {
 
 document.getElementById("register-form").addEventListener("submit", async (e) => {
   e.preventDefault();
+  const organizationName = (document.getElementById("organization-name") && document.getElementById("organization-name").value) || "";
+  const organizationCode = (document.getElementById("organization-code") && document.getElementById("organization-code").value) || "";
   const email = document.getElementById("register-email").value;
   const password = document.getElementById("register-password").value;
   const role = document.getElementById("register-role").value;
@@ -37,6 +40,39 @@ document.getElementById("register-form").addEventListener("submit", async (e) =>
   const successMessage = document.getElementById("success-message");
   errorMessage.style.display = "none";
   successMessage.style.display = "none";
+
+  const useOrgRegistration = organizationName.trim() && organizationCode.trim();
+  if (useOrgRegistration) {
+    // New organization + super_admin
+    try {
+      const res = await fetch(`${getApiBaseUrl()}/auth/register-org`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          organization_name: organizationName.trim(),
+          organization_code: organizationCode.trim(),
+          email,
+          password,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        errorMessage.textContent = getErrorMessage(data.detail);
+        errorMessage.style.display = "flex";
+        return;
+      }
+      setToken(data.token);
+      successMessage.textContent = "Organization and account created. Redirecting...";
+      successMessage.style.display = "flex";
+      setTimeout(() => {
+        window.location.href = "admin.html";
+      }, 1500);
+    } catch (err) {
+      errorMessage.textContent = err.message || "Registration failed.";
+      errorMessage.style.display = "flex";
+    }
+    return;
+  }
 
   if (role === "admin" && !adminCode) {
     errorMessage.textContent = "Admin access code is required for administrator accounts.";

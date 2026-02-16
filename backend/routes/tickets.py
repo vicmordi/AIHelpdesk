@@ -10,7 +10,7 @@ from openai import OpenAI
 import json
 from firebase_admin import firestore
 from config import OPENAI_API_KEY
-from middleware import verify_token, verify_admin
+from middleware import verify_token, verify_admin, get_current_user, require_admin_or_above, require_super_admin
 
 router = APIRouter()
 
@@ -50,21 +50,23 @@ class TicketResponse(BaseModel):
 @router.post("")
 async def create_ticket(
     ticket: TicketRequest,
-    decoded_token: dict = Depends(verify_token)
+    current_user: dict = Depends(get_current_user)
 ):
     """
-    Create a new support ticket and attempt AI resolution
+    Create a new support ticket and attempt AI resolution.
+    Scoped by organization_id when user belongs to an org.
     """
     try:
-        # Get Firestore client (lazy initialization)
         db = get_db()
-        
-        uid = decoded_token.get("uid")
-        
-        # Fetch all knowledge base articles
+        uid = current_user["uid"]
+        organization_id = current_user.get("organization_id")
+
+        # Fetch knowledge base articles scoped by organization (only this org's KB for AI)
         kb_ref = db.collection("knowledge_base")
-        kb_articles = kb_ref.stream()
-        
+        if organization_id is not None:
+            kb_articles = kb_ref.where("organization_id", "==", organization_id).stream()
+        else:
+            kb_articles = kb_ref.stream()
         knowledge_base = []
         for doc in kb_articles:
             article_data = doc.to_dict()
@@ -72,70 +74,64 @@ async def create_ticket(
                 "title": article_data.get("title", ""),
                 "content": article_data.get("content", "")
             })
-        
-        # Prepare knowledge base text for AI
+
         kb_text = "\n\n".join([
             f"Title: {kb['title']}\nContent: {kb['content']}"
             for kb in knowledge_base
         ])
-        
-        # Call OpenAI to analyze the ticket
         ai_result = await analyze_ticket_with_ai(ticket.message, kb_text, knowledge_base)
-        
-        # Initialize messages array with user message and AI response
+
         messages = [
             {
                 "sender": "user",
                 "message": ticket.message,
                 "createdAt": datetime.utcnow().isoformat(),
-                "isRead": True  # User's own message is read
+                "isRead": True
             }
         ]
-        
-        # Add AI response as a message if auto-resolved
         if ai_result.get("status") == "auto_resolved" and ai_result.get("aiReply"):
             messages.append({
                 "sender": "ai",
                 "message": ai_result.get("aiReply"),
                 "createdAt": datetime.utcnow().isoformat(),
-                "isRead": False  # AI response is unread by user initially
+                "isRead": False
             })
-        
-        # Determine if ticket is escalated
-        # Escalation is a historical state - once escalated, always escalated
+
         ticket_status = ai_result.get("status", "needs_escalation")
-        # Map "needs_escalation" to "escalated" status for consistency
         if ticket_status == "needs_escalation":
             ticket_status = "escalated"
         is_escalated = (ticket_status == "escalated")
-        
-        # Create ticket document
+
+        summary = ai_result.get("summary", "")
         ticket_data = {
             "userId": uid,
-            "message": ticket.message,  # Keep original message field for backward compatibility
-            "summary": ai_result.get("summary", ""),
+            "message": ticket.message,
+            "summary": summary,
+            "subject": summary or (ticket.message[:200] + "..." if len(ticket.message) > 200 else ticket.message),
+            "description": ticket.message,
             "status": ticket_status,
-            "escalated": is_escalated,  # Track escalation independently from status
+            "escalated": is_escalated,
             "category": ai_result.get("category"),
-            "aiReply": ai_result.get("aiReply"),  # Keep for backward compatibility
+            "aiReply": ai_result.get("aiReply"),
             "confidence": ai_result.get("confidence", 0.0),
             "knowledge_used": ai_result.get("knowledge_used", []),
             "internal_note": ai_result.get("internal_note", ""),
-            "messages": messages,  # New: conversation thread
+            "messages": messages,
             "createdAt": datetime.utcnow().isoformat()
         }
-        
-        # Save to Firestore
+        if organization_id is not None:
+            ticket_data["organization_id"] = organization_id
+            ticket_data["created_by"] = uid
+            ticket_data["assigned_to"] = None
+
         doc_ref = db.collection("tickets").add(ticket_data)
         ticket_id = doc_ref[1].id
-        
         return {
             "message": "Ticket created successfully",
-            "ticket": {
-                "id": ticket_id,
-                **ticket_data
-            }
+            "ticket": {"id": ticket_id, **ticket_data}
         }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error creating ticket: {str(e)}")
 
@@ -346,134 +342,123 @@ ANALYSIS REQUIRED:
 
 
 @router.get("")
-async def get_all_tickets(decoded_token: dict = Depends(verify_admin)):
+async def get_all_tickets(current_user: dict = Depends(require_admin_or_above)):
     """
-    Get all tickets (Admin only)
+    Get tickets (Admin only). Super_admin sees all org tickets; support_admin sees only assigned.
+    Scoped by organization_id when user belongs to an org.
     """
     try:
-        # Get Firestore client (lazy initialization)
         db = get_db()
-        
+        organization_id = current_user.get("organization_id")
+        uid = current_user["uid"]
+        role = current_user.get("role")
+
         tickets_ref = db.collection("tickets")
-        tickets = tickets_ref.stream()
-        
+        if organization_id is not None:
+            if role == "support_admin":
+                tickets_ref = tickets_ref.where("organization_id", "==", organization_id).where("assigned_to", "==", uid)
+            else:
+                tickets_ref = tickets_ref.where("organization_id", "==", organization_id)
+            tickets = tickets_ref.stream()
+        else:
+            tickets = tickets_ref.stream()
+
         result = []
         for doc in tickets:
             ticket_data = doc.to_dict()
-            # Backward compatibility: If escalated field doesn't exist, infer from status
             if "escalated" not in ticket_data:
-                ticket_data["escalated"] = (ticket_data.get("status") == "escalated" or 
+                ticket_data["escalated"] = (ticket_data.get("status") == "escalated" or
                                            ticket_data.get("status") == "needs_escalation")
-            result.append({
-                "id": doc.id,
-                **ticket_data
-            })
-        
-        # Sort by createdAt descending (newest first)
+            result.append({"id": doc.id, **ticket_data})
         result.sort(key=lambda x: x.get("createdAt", ""), reverse=True)
-        
         return {"tickets": result}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching tickets: {str(e)}")
 
 
 @router.get("/my-tickets")
-async def get_my_tickets(decoded_token: dict = Depends(verify_token)):
+async def get_my_tickets(current_user: dict = Depends(get_current_user)):
     """
-    Get tickets for the current user
+    Get tickets created by the current user. Scoped by organization_id when applicable.
     """
     try:
-        # Get Firestore client (lazy initialization)
         db = get_db()
-        
-        uid = decoded_token.get("uid")
-        
-        tickets_ref = db.collection("tickets").where("userId", "==", uid)
+        uid = current_user["uid"]
+        organization_id = current_user.get("organization_id")
+
+        if organization_id is not None:
+            tickets_ref = db.collection("tickets").where("organization_id", "==", organization_id).where("userId", "==", uid)
+        else:
+            tickets_ref = db.collection("tickets").where("userId", "==", uid)
         tickets = tickets_ref.stream()
-        
+
         result = []
         for doc in tickets:
             ticket_data = doc.to_dict()
-            # Backward compatibility: If escalated field doesn't exist, infer from status
             if "escalated" not in ticket_data:
-                ticket_data["escalated"] = (ticket_data.get("status") == "escalated" or 
+                ticket_data["escalated"] = (ticket_data.get("status") == "escalated" or
                                            ticket_data.get("status") == "needs_escalation")
-            result.append({
-                "id": doc.id,
-                **ticket_data
-            })
-        
-        # Sort by createdAt descending (newest first)
+            result.append({"id": doc.id, **ticket_data})
         result.sort(key=lambda x: x.get("createdAt", ""), reverse=True)
-        
         return {"tickets": result}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching tickets: {str(e)}")
 
 
 @router.get("/escalated")
-async def get_escalated_tickets(decoded_token: dict = Depends(verify_admin)):
+async def get_escalated_tickets(current_user: dict = Depends(require_admin_or_above)):
     """
-    Get all escalated tickets (Admin only)
-    Uses the escalated field, not status, since escalation is a historical state
+    Get escalated tickets for the organization. Super_admin: all org escalated; support_admin: assigned only.
     """
     try:
-        # Get Firestore client (lazy initialization)
         db = get_db()
-        
-        # Query by escalated field instead of status
-        # This ensures we get all tickets that were ever escalated, regardless of current status
-        # Also query by status for backward compatibility with old tickets
-        tickets_ref_escalated = db.collection("tickets").where("escalated", "==", True)
-        tickets_ref_status1 = db.collection("tickets").where("status", "==", "escalated")
-        tickets_ref_status2 = db.collection("tickets").where("status", "==", "needs_escalation")
-        
-        # Get tickets from all queries and merge (avoid duplicates)
-        escalated_tickets = tickets_ref_escalated.stream()
-        status_tickets1 = tickets_ref_status1.stream()
-        status_tickets2 = tickets_ref_status2.stream()
-        
+        organization_id = current_user.get("organization_id")
+        uid = current_user["uid"]
+        role = current_user.get("role")
+
+        base = db.collection("tickets")
+        if organization_id is not None:
+            if role == "support_admin":
+                base_escalated = base.where("organization_id", "==", organization_id).where("assigned_to", "==", uid).where("escalated", "==", True)
+                base_s1 = base.where("organization_id", "==", organization_id).where("assigned_to", "==", uid).where("status", "==", "escalated")
+                base_s2 = base.where("organization_id", "==", organization_id).where("assigned_to", "==", uid).where("status", "==", "needs_escalation")
+            else:
+                base_escalated = base.where("organization_id", "==", organization_id).where("escalated", "==", True)
+                base_s1 = base.where("organization_id", "==", organization_id).where("status", "==", "escalated")
+                base_s2 = base.where("organization_id", "==", organization_id).where("status", "==", "needs_escalation")
+        else:
+            base_escalated = base.where("escalated", "==", True)
+            base_s1 = base.where("status", "==", "escalated")
+            base_s2 = base.where("status", "==", "needs_escalation")
+
         ticket_ids = set()
         result = []
-        
-        # Add tickets from escalated field query
-        for doc in escalated_tickets:
+        for doc in base_escalated.stream():
             ticket_data = doc.to_dict()
-            ticket_data["escalated"] = True  # Ensure it's set
+            ticket_data["escalated"] = True
             ticket_ids.add(doc.id)
-            result.append({
-                "id": doc.id,
-                **ticket_data
-            })
-        
-        # Add tickets from status queries (for backward compatibility)
-        for doc in status_tickets1:
+            result.append({"id": doc.id, **ticket_data})
+        for doc in base_s1.stream():
             if doc.id not in ticket_ids:
                 ticket_data = doc.to_dict()
-                # Set escalated field if missing
                 if "escalated" not in ticket_data:
                     ticket_data["escalated"] = True
-                result.append({
-                    "id": doc.id,
-                    **ticket_data
-                })
+                result.append({"id": doc.id, **ticket_data})
                 ticket_ids.add(doc.id)
-        
-        for doc in status_tickets2:
+        for doc in base_s2.stream():
             if doc.id not in ticket_ids:
                 ticket_data = doc.to_dict()
-                # Set escalated field if missing
                 if "escalated" not in ticket_data:
                     ticket_data["escalated"] = True
-                result.append({
-                    "id": doc.id,
-                    **ticket_data
-                })
-        
-        # Sort by createdAt descending (newest first)
+                result.append({"id": doc.id, **ticket_data})
         result.sort(key=lambda x: x.get("createdAt", ""), reverse=True)
-        
         return {"tickets": result}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching escalated tickets: {str(e)}")
 
@@ -482,71 +467,38 @@ async def get_escalated_tickets(decoded_token: dict = Depends(verify_admin)):
 async def add_message_to_ticket(
     ticket_id: str,
     message_request: MessageRequest,
-    decoded_token: dict = Depends(verify_token)
+    current_user: dict = Depends(get_current_user)
 ):
     """
-    Add a message to a ticket conversation thread
-    - Users can only send messages as "user" on their own tickets
-    - Admins can send messages as "admin" on any ticket
+    Add a message to a ticket. Users: own tickets as "user"; admins: as "admin".
+    Enforces organization_id match when user belongs to an org.
     """
     try:
-        # Get Firestore client (lazy initialization)
         db = get_db()
-        
-        uid = decoded_token.get("uid")
-        
-        # Get user role
-        user_ref = db.collection("users").document(uid)
-        user_doc = user_ref.get()
-        
-        if not user_doc.exists:
-            raise HTTPException(status_code=404, detail="User not found")
-        
-        user_data = user_doc.to_dict()
-        user_role = user_data.get("role", "employee")
-        is_admin = (user_role == "admin")
-        
-        # Get ticket
+        uid = current_user["uid"]
+        role = current_user.get("role")
+        organization_id = current_user.get("organization_id")
+        is_admin = role in ("super_admin", "support_admin")
+
         ticket_ref = db.collection("tickets").document(ticket_id)
         ticket_doc = ticket_ref.get()
-        
         if not ticket_doc.exists:
             raise HTTPException(status_code=404, detail="Ticket not found")
-        
         ticket_data = ticket_doc.to_dict()
         ticket_user_id = ticket_data.get("userId")
-        
-        # Security: Users can only message their own tickets
+        ticket_org_id = ticket_data.get("organization_id")
+
+        if organization_id is not None and ticket_org_id != organization_id:
+            raise HTTPException(status_code=403, detail="Ticket not in your organization")
         if not is_admin and ticket_user_id != uid:
-            raise HTTPException(
-                status_code=403,
-                detail="You can only send messages on your own tickets"
-            )
-        
-        # Validate sender role
-        # Users can only send as "user", admins can only send as "admin"
+            raise HTTPException(status_code=403, detail="You can only send messages on your own tickets")
         if not is_admin and message_request.sender != "user":
-            raise HTTPException(
-                status_code=403,
-                detail="Users can only send messages as 'user'"
-            )
-        
+            raise HTTPException(status_code=403, detail="Users can only send messages as 'user'")
         if is_admin and message_request.sender != "admin":
-            raise HTTPException(
-                status_code=400,
-                detail="Admins must send messages as 'admin'"
-            )
-        
-        # Get existing messages or initialize empty array
+            raise HTTPException(status_code=400, detail="Admins must send messages as 'admin'")
+
         messages = ticket_data.get("messages", [])
-        
-        # Add new message
-        # Determine if message should be marked as read:
-        # - If sender is "user", mark as read (user sees their own message)
-        # - If sender is "admin", mark as unread for the ticket owner
-        # - If sender is "ai", mark as unread for the ticket owner
         is_read = (message_request.sender == "user")
-        
         new_message = {
             "sender": message_request.sender,
             "message": message_request.message,
@@ -554,18 +506,8 @@ async def add_message_to_ticket(
             "isRead": is_read
         }
         messages.append(new_message)
-        
-        # Update ticket with new message
-        ticket_ref.update({
-            "messages": messages
-        })
-        
-        return {
-            "message": "Message added successfully",
-            "ticket_id": ticket_id,
-            "new_message": new_message
-        }
-        
+        ticket_ref.update({"messages": messages})
+        return {"message": "Message added successfully", "ticket_id": ticket_id, "new_message": new_message}
     except HTTPException:
         raise
     except Exception as e:
@@ -575,67 +517,32 @@ async def add_message_to_ticket(
 @router.post("/{ticket_id}/messages/read")
 async def mark_messages_as_read(
     ticket_id: str,
-    decoded_token: dict = Depends(verify_token)
+    current_user: dict = Depends(get_current_user)
 ):
     """
-    Mark all messages in a ticket as read for the current user
-    - Users can mark messages as read on their own tickets
-    - Admins can mark messages as read on any ticket
+    Mark all messages in a ticket as read. Users: own tickets only; admins: any in org.
     """
     try:
-        # Get Firestore client (lazy initialization)
         db = get_db()
-        
-        uid = decoded_token.get("uid")
-        
-        # Get user role
-        user_ref = db.collection("users").document(uid)
-        user_doc = user_ref.get()
-        
-        if not user_doc.exists:
-            raise HTTPException(status_code=404, detail="User not found")
-        
-        user_data = user_doc.to_dict()
-        user_role = user_data.get("role", "employee")
-        is_admin = (user_role == "admin")
-        
-        # Get ticket
+        uid = current_user["uid"]
+        role = current_user.get("role")
+        organization_id = current_user.get("organization_id")
+        is_admin = role in ("super_admin", "support_admin")
+
         ticket_ref = db.collection("tickets").document(ticket_id)
         ticket_doc = ticket_ref.get()
-        
         if not ticket_doc.exists:
             raise HTTPException(status_code=404, detail="Ticket not found")
-        
         ticket_data = ticket_doc.to_dict()
-        ticket_user_id = ticket_data.get("userId")
-        
-        # Security: Users can only mark messages as read on their own tickets
-        if not is_admin and ticket_user_id != uid:
-            raise HTTPException(
-                status_code=403,
-                detail="You can only mark messages as read on your own tickets"
-            )
-        
-        # Get existing messages
+        if organization_id is not None and ticket_data.get("organization_id") != organization_id:
+            raise HTTPException(status_code=403, detail="Ticket not in your organization")
+        if not is_admin and ticket_data.get("userId") != uid:
+            raise HTTPException(status_code=403, detail="You can only mark messages as read on your own tickets")
+
         messages = ticket_data.get("messages", [])
-        
-        # Mark all messages as read
-        updated_messages = []
-        for msg in messages:
-            msg_copy = msg.copy()
-            msg_copy["isRead"] = True
-            updated_messages.append(msg_copy)
-        
-        # Update ticket with read messages
-        ticket_ref.update({
-            "messages": updated_messages
-        })
-        
-        return {
-            "message": "Messages marked as read",
-            "ticket_id": ticket_id
-        }
-        
+        updated_messages = [dict(m, isRead=True) for m in messages]
+        ticket_ref.update({"messages": updated_messages})
+        return {"message": "Messages marked as read", "ticket_id": ticket_id}
     except HTTPException:
         raise
     except Exception as e:
@@ -646,59 +553,80 @@ async def mark_messages_as_read(
 async def update_ticket_status(
     ticket_id: str,
     status_update: dict,
-    decoded_token: dict = Depends(verify_admin)
+    current_user: dict = Depends(require_admin_or_above)
 ):
     """
-    Update ticket status (Admin only)
-    Allowed statuses: pending, in_progress, resolved, escalated, auto_resolved
-    
-    IMPORTANT: Escalation is a historical state - once escalated, always escalated.
-    Changing status does NOT change the escalated flag.
+    Update ticket status (support_admin or super_admin). Scoped by organization.
+    Allowed statuses: pending, in_progress, resolved, escalated, auto_resolved.
     """
     try:
-        # Get Firestore client (lazy initialization)
         db = get_db()
-        
+        organization_id = current_user.get("organization_id")
         allowed_statuses = ["pending", "in_progress", "resolved", "escalated", "auto_resolved"]
         new_status = status_update.get("status")
-        
         if not new_status or new_status not in allowed_statuses:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid status. Allowed values: {', '.join(allowed_statuses)}"
-            )
-        
-        # Get ticket
+            raise HTTPException(status_code=400, detail=f"Invalid status. Allowed: {', '.join(allowed_statuses)}")
+
         ticket_ref = db.collection("tickets").document(ticket_id)
         ticket_doc = ticket_ref.get()
-        
         if not ticket_doc.exists:
             raise HTTPException(status_code=404, detail="Ticket not found")
-        
         ticket_data = ticket_doc.to_dict()
+        if organization_id is not None and ticket_data.get("organization_id") != organization_id:
+            raise HTTPException(status_code=403, detail="Ticket not in your organization")
+        # support_admin may only update tickets assigned to them
+        if current_user.get("role") == "support_admin" and ticket_data.get("assigned_to") != current_user["uid"]:
+            raise HTTPException(status_code=403, detail="You can only update tickets assigned to you")
+
         current_escalated = ticket_data.get("escalated", False)
-        
-        # If ticket was previously escalated, keep escalated = true
-        # Escalation is a historical state that never reverts
-        # Also set escalated = true if new status is "escalated"
         if new_status == "escalated":
             current_escalated = True
-        
-        # Update status (but preserve escalated flag)
         ticket_ref.update({
             "status": new_status,
-            "escalated": current_escalated,  # Preserve escalation state
+            "escalated": current_escalated,
             "updatedAt": datetime.utcnow().isoformat()
         })
-        
-        return {
-            "message": "Ticket status updated successfully",
-            "ticket_id": ticket_id,
-            "status": new_status,
-            "escalated": current_escalated
-        }
-        
+        return {"message": "Ticket status updated successfully", "ticket_id": ticket_id, "status": new_status, "escalated": current_escalated}
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error updating ticket status: {str(e)}")
+
+
+@router.put("/{ticket_id}/assign")
+async def assign_ticket(
+    ticket_id: str,
+    body: dict,
+    current_user: dict = Depends(require_super_admin),
+):
+    """
+    Assign a ticket to a user (support_admin). Super_admin only. Scoped by organization.
+    Body: { "assigned_to": "<uid>" } or { "assigned_to": null } to unassign.
+    """
+    try:
+        db = get_db()
+        organization_id = current_user.get("organization_id")
+        if not organization_id:
+            raise HTTPException(status_code=400, detail="Organization required")
+        assigned_to = body.get("assigned_to")
+
+        ticket_ref = db.collection("tickets").document(ticket_id)
+        ticket_doc = ticket_ref.get()
+        if not ticket_doc.exists:
+            raise HTTPException(status_code=404, detail="Ticket not found")
+        ticket_data = ticket_doc.to_dict()
+        if ticket_data.get("organization_id") != organization_id:
+            raise HTTPException(status_code=403, detail="Ticket not in your organization")
+        if assigned_to is not None:
+            user_doc = db.collection("users").document(assigned_to).get()
+            if not user_doc.exists or user_doc.to_dict().get("organization_id") != organization_id:
+                raise HTTPException(status_code=400, detail="Assigned user must belong to your organization")
+        ticket_ref.update({
+            "assigned_to": assigned_to,
+            "updatedAt": datetime.utcnow().isoformat(),
+        })
+        return {"message": "Ticket assignment updated", "ticket_id": ticket_id, "assigned_to": assigned_to}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error assigning ticket: {str(e)}")

@@ -10,10 +10,8 @@ export function renderSidebar(container, options = {}) {
 
     const links = [
         { id: "dashboard", hash: "#dashboard", label: "Dashboard", icon: "🏠" },
-        { id: "tickets", hash: "#tickets", label: "Tickets", icon: "🎫" },
-        { id: "messages", hash: "#messages", label: "Messages", icon: "💬", action: "open-messages" },
+        { id: "tickets", hash: "#tickets", label: "View All Tickets", icon: "🎫" },
         { id: "knowledge-base", hash: "#knowledge-base", label: "Knowledge Base", icon: "📚" },
-        { id: "add-article", hash: "#add-article", label: "Add Knowledge Article", icon: "➕" },
     ];
     if (isSuperAdmin) {
         links.push({ id: "support-admins", hash: "#support-admins", label: "Support Admins", icon: "👥" });
@@ -70,11 +68,6 @@ export function renderSidebar(container, options = {}) {
             if (page === "logout") {
                 e.preventDefault();
                 if (typeof onLogout === "function") onLogout();
-                return;
-            }
-            if (action === "open-messages") {
-                e.preventDefault();
-                if (typeof options.onOpenMessages === "function") options.onOpenMessages();
                 return;
             }
             setActive();

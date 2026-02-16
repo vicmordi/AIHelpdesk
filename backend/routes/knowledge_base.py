@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from typing import List, Optional
 from datetime import datetime
 from firebase_admin import firestore
-from middleware import require_admin_or_above
+from middleware import require_admin_or_above, require_super_admin
 
 router = APIRouter()
 
@@ -20,6 +20,7 @@ def get_db():
 class KnowledgeBaseArticle(BaseModel):
     title: str
     content: str
+    category: Optional[str] = None
 
 
 class KnowledgeBaseResponse(BaseModel):
@@ -32,10 +33,10 @@ class KnowledgeBaseResponse(BaseModel):
 @router.post("")
 async def create_article(
     article: KnowledgeBaseArticle,
-    current_user: dict = Depends(require_admin_or_above)
+    current_user: dict = Depends(require_super_admin)
 ):
     """
-    Create a new knowledge base article. Scoped to current user's organization.
+    Create a new knowledge base article. Super_admin only. Scoped to organization.
     """
     try:
         db = get_db()
@@ -43,11 +44,16 @@ async def create_article(
         if organization_id is None:
             raise HTTPException(status_code=400, detail="Organization required to create articles")
         uid = current_user["uid"]
+        # Resolve author display name from user doc
+        user_doc = db.collection("users").document(uid).get()
+        created_by_name = (user_doc.to_dict() or {}).get("full_name") or (user_doc.to_dict() or {}).get("email") or ""
         article_data = {
             "title": article.title,
             "content": article.content,
+            "category": (article.category or "").strip() or None,
             "organization_id": organization_id,
             "created_by": uid,
+            "created_by_name": created_by_name,
             "createdAt": datetime.utcnow().isoformat(),
         }
         doc_ref = db.collection("knowledge_base").add(article_data)
@@ -79,7 +85,10 @@ async def get_articles(current_user: dict = Depends(require_admin_or_above)):
                 "id": doc.id,
                 "title": article_data.get("title"),
                 "content": article_data.get("content"),
-                "createdAt": article_data.get("createdAt")
+                "category": article_data.get("category"),
+                "createdAt": article_data.get("createdAt"),
+                "created_by": article_data.get("created_by"),
+                "created_by_name": article_data.get("created_by_name") or "",
             })
         result.sort(key=lambda x: x.get("createdAt", ""), reverse=True)
         return {"articles": result}
@@ -93,10 +102,10 @@ async def get_articles(current_user: dict = Depends(require_admin_or_above)):
 async def update_article(
     article_id: str,
     article: KnowledgeBaseArticle,
-    current_user: dict = Depends(require_admin_or_above)
+    current_user: dict = Depends(require_super_admin)
 ):
     """
-    Update a knowledge base article. Must belong to current user's organization.
+    Update a knowledge base article. Super_admin only. Must belong to current user's organization.
     """
     try:
         db = get_db()
@@ -108,12 +117,15 @@ async def update_article(
         existing_data = article_doc.to_dict()
         if organization_id is not None and existing_data.get("organization_id") != organization_id:
             raise HTTPException(status_code=403, detail="Article not in your organization")
-        article_ref.update({
+        updates = {
             "title": article.title,
             "content": article.content,
             "updatedAt": datetime.utcnow().isoformat(),
-            "createdAt": existing_data.get("createdAt", datetime.utcnow().isoformat())
-        })
+            "createdAt": existing_data.get("createdAt", datetime.utcnow().isoformat()),
+        }
+        if article.category is not None:
+            updates["category"] = (article.category or "").strip() or None
+        article_ref.update(updates)
         return {"message": "Article updated successfully", "id": article_id, "title": article.title, "content": article.content}
     except HTTPException:
         raise
@@ -124,7 +136,7 @@ async def update_article(
 @router.delete("/{article_id}")
 async def delete_article(
     article_id: str,
-    current_user: dict = Depends(require_admin_or_above)
+    current_user: dict = Depends(require_super_admin)
 ):
     """
     Delete a knowledge base article. Must belong to current user's organization.

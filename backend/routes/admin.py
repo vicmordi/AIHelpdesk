@@ -31,6 +31,7 @@ def _ensure_org_and_same_org(current_user: dict, target_uid: Optional[str] = Non
 
 
 class CreateSupportAdminRequest(BaseModel):
+    full_name: str
     email: EmailStr
     temporary_password: str
 
@@ -56,7 +57,8 @@ async def list_organization_users(current_user: dict = Depends(require_super_adm
         result.append({
             "uid": doc.id,
             "email": d.get("email"),
-            "name": (d.get("email") or "").split("@")[0],
+            "full_name": d.get("full_name") or "",
+            "name": d.get("full_name") or (d.get("email") or "").split("@")[0],  # legacy fallback
             "role": d.get("role", "employee"),
             "status": "disabled" if d.get("disabled") else "active",
             "created_at": d.get("created_at") or d.get("createdAt"),
@@ -74,9 +76,13 @@ async def create_support_admin(
 ):
     """
     Create a support admin user in the same organization. Super_admin only.
+    Requires full_name (stored in Firestore); no longer derived from email.
     """
     organization_id = _ensure_org_and_same_org(current_user)
 
+    full_name = (body.full_name or "").strip()
+    if not full_name:
+        raise HTTPException(status_code=400, detail="Full name is required")
     email = body.email.strip().lower()
     password = (body.temporary_password or "").strip()
     if len(password) < 6:
@@ -98,6 +104,7 @@ async def create_support_admin(
     db.collection("users").document(uid).set({
         "uid": uid,
         "email": email,
+        "full_name": full_name,
         "role": "support_admin",
         "organization_id": organization_id,
         "must_change_password": True,
@@ -109,6 +116,7 @@ async def create_support_admin(
         "message": "Support admin created successfully",
         "uid": uid,
         "email": email,
+        "full_name": full_name,
         "role": "support_admin",
         "must_change_password": True,
     }

@@ -13,10 +13,14 @@ function showPage(pageId) {
     if (pageId === "tickets") {
         loadAllTickets();
         loadAssignableMembers();
-    } else if (pageId === "knowledge-base") loadKnowledgeBase();
-    else if (pageId === "add-article") {
+    } else if (pageId === "knowledge-base") {
         loadKnowledgeBase();
-        renderAddArticleList();
+        const addBtn = document.getElementById("kb-add-new-btn");
+        if (addBtn) addBtn.style.display = currentUser?.role === "super_admin" ? "inline-flex" : "none";
+        if (window.location.hash === "#knowledge-base/add" || window._openAddArticleModal) {
+            window._openAddArticleModal = false;
+            if (currentUser?.role === "super_admin") openAddArticleModal();
+        }
     } else if (pageId === "dashboard") loadDashboardStats();
     else if (pageId === "support-admins") {
         if (currentUser?.role === "super_admin") loadSupportAdminsPage();
@@ -56,25 +60,6 @@ async function loadAssignableMembers() {
     }
 }
 
-function renderAddArticleList() {
-    const el = document.getElementById("add-article-list");
-    if (!el) return;
-    apiRequest("/knowledge-base").then((data) => {
-        const articles = (data.articles || []).slice(0, 10);
-        if (articles.length === 0) {
-            el.innerHTML = "<p class=\"empty-state\">No articles yet.</p>";
-            return;
-        }
-        el.innerHTML = articles.map((a) => `
-            <div class="article-card" data-article-id="${a.id}">
-                <h3>${escapeHtml(a.title)}</h3>
-                <p>${escapeHtml((a.content || "").length > 120 ? a.content.substring(0, 120) + "..." : a.content)}</p>
-                <button type="button" class="btn btn-primary view-article-btn" data-article-id="${a.id}">View</button>
-            </div>
-        `).join("");
-    }).catch(() => { el.innerHTML = "<p>Error loading articles.</p>"; });
-}
-
 async function loadSupportAdminsPage() {
     const listEl = document.getElementById("support-admins-list");
     if (!listEl) return;
@@ -88,11 +73,11 @@ async function loadSupportAdminsPage() {
         }
         listEl.innerHTML = `
             <table class="data-table">
-                <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th>Created</th><th>Actions</th></tr></thead>
+                <thead><tr><th>Full Name</th><th>Email</th><th>Role</th><th>Status</th><th>Created</th><th>Actions</th></tr></thead>
                 <tbody>
                     ${users.map((u) => `
                         <tr>
-                            <td>${escapeHtml(u.name || u.email || "")}</td>
+                            <td>${escapeHtml(u.full_name || u.name || u.email || "")}</td>
                             <td>${escapeHtml(u.email || "")}</td>
                             <td><span class="badge ${u.role === 'super_admin' ? 'badge-warning' : 'badge-info'}">${u.role}</span></td>
                             <td>${u.status === "disabled" ? "<span class=\"badge badge-danger\">Disabled</span>" : "Active"}</td>
@@ -211,10 +196,11 @@ async function loadSettingsPage() {
                 <div class="card-header"><h2>User management</h2></div>
                 <div class="card-body">
                     <table class="data-table">
-                        <thead><tr><th>Email</th><th>Role</th><th>Status</th><th>Last login</th><th>Actions</th></tr></thead>
+                        <thead><tr><th>Full Name</th><th>Email</th><th>Role</th><th>Status</th><th>Last login</th><th>Actions</th></tr></thead>
                         <tbody>
                             ${users.map((u) => `
                                 <tr>
+                                    <td>${escapeHtml(u.full_name || u.name || "")}</td>
                                     <td>${escapeHtml(u.email || "")}</td>
                                     <td><span class="badge badge-info">${u.role}</span></td>
                                     <td>${u.status === "disabled" ? "<span class=\"badge badge-danger\">Disabled</span>" : "Active"}</td>
@@ -305,20 +291,26 @@ async function loadSettingsPage() {
         }
 
         const hash = (window.location.hash || "#dashboard").replace("#", "") || "dashboard";
-        if (hash === "messages") {
-            openMessagesModal();
-            window.location.hash = "dashboard";
+        const pagePart = hash.split("/")[0];
+        const subPart = hash.split("/")[1];
+        if (pagePart === "knowledge-base" && subPart === "add") {
+            window.location.hash = "knowledge-base";
+            showPage("knowledge-base");
+            if (currentUser?.role === "super_admin") setTimeout(openAddArticleModal, 100);
+        } else {
+            showPage(pagePart);
         }
-        showPage(hash === "messages" ? "dashboard" : hash);
         window.addEventListener("hashchange", () => {
             const h = (window.location.hash || "#dashboard").replace("#", "") || "dashboard";
-            if (h === "messages") {
-                openMessagesModal();
-                history.replaceState(null, "", "#dashboard");
-                showPage("dashboard");
+            const p = h.split("/")[0];
+            const sub = h.split("/")[1];
+            if (p === "knowledge-base" && sub === "add") {
+                history.replaceState(null, "", "#knowledge-base");
+                showPage("knowledge-base");
+                if (currentUser?.role === "super_admin") setTimeout(openAddArticleModal, 100);
                 return;
             }
-            showPage(h);
+            showPage(p);
         });
 
         loadKnowledgeBase();
@@ -371,11 +363,17 @@ document.addEventListener('DOMContentLoaded', () => {
             closeModal(e.target);
             return;
         }
-        // 3) Article "View" button
+        // 3) Article "View" or "Edit" button
         const viewBtn = e.target.closest('.view-article-btn');
         if (viewBtn && viewBtn.dataset.articleId) {
             e.preventDefault();
             openArticleViewModal(viewBtn.dataset.articleId);
+            return;
+        }
+        const editBtn = e.target.closest('.edit-article-btn');
+        if (editBtn && editBtn.dataset.articleId) {
+            e.preventDefault();
+            openArticleViewModal(editBtn.dataset.articleId);
             return;
         }
         // 4) Article "Delete" button
@@ -490,39 +488,60 @@ document.addEventListener('DOMContentLoaded', () => {
     // Modal "click outside" is handled by body delegation (e.target.classList.contains('modal-overlay'))
 });
 
-// Knowledge Base Form Handler
-document.getElementById('kb-form').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    
-    const title = document.getElementById('kb-title').value;
-    const content = document.getElementById('kb-content').value;
-    
+// Add Article modal: open, close, save (Super Admin only)
+function openAddArticleModal() {
+    const modal = document.getElementById('add-article-modal');
+    if (!modal) return;
+    document.getElementById('add-article-title').value = '';
+    document.getElementById('add-article-category').value = '';
+    document.getElementById('add-article-content').value = '';
+    modal.classList.add('active');
+}
+
+function closeAddArticleModal() {
+    const modal = document.getElementById('add-article-modal');
+    if (modal) modal.classList.remove('active');
+}
+
+document.getElementById('add-article-save-btn')?.addEventListener('click', async () => {
+    const title = document.getElementById('add-article-title')?.value?.trim();
+    const category = document.getElementById('add-article-category')?.value?.trim();
+    const content = document.getElementById('add-article-content')?.value?.trim();
+    if (!title || !content) {
+        showError('Title and content are required');
+        return;
+    }
     try {
         await apiRequest('/knowledge-base', {
             method: 'POST',
-            body: JSON.stringify({ title, content })
+            body: JSON.stringify({ title, content, category: category || undefined })
         });
-        
         showSuccess('Article saved successfully!');
-        document.getElementById('kb-form').reset();
+        closeAddArticleModal();
         loadKnowledgeBase();
-        if (document.getElementById('page-add-article')?.classList.contains('active')) renderAddArticleList();
     } catch (error) {
-        showError(`Failed to save article: ${error.message}`);
+        showError(error.message || 'Failed to save article');
     }
 });
+
+document.getElementById('kb-add-new-btn')?.addEventListener('click', openAddArticleModal);
 
 // Create support admin (super_admin only)
 const createSupportAdminForm = document.getElementById('create-support-admin-form');
 if (createSupportAdminForm) {
     createSupportAdminForm.addEventListener('submit', async (e) => {
         e.preventDefault();
+        const full_name = document.getElementById('support-admin-full-name').value.trim();
         const email = document.getElementById('support-admin-email').value.trim();
         const temporary_password = document.getElementById('support-admin-password').value;
+        if (!full_name) {
+            showError('Full name is required');
+            return;
+        }
         try {
             await apiRequest('/admin/create-support-admin', {
                 method: 'POST',
-                body: JSON.stringify({ email, temporary_password })
+                body: JSON.stringify({ full_name, email, temporary_password })
             });
             showSuccess('Support admin created. They must change password on first login.');
             createSupportAdminForm.reset();
@@ -559,26 +578,38 @@ async function loadKnowledgeBase() {
                 <div class="empty-state">
                     <div class="empty-state-icon">📚</div>
                     <p>No knowledge base articles yet.</p>
-                    <p style="margin-top: 8px; font-size: 13px;">Create your first article above to help AI resolve tickets.</p>
+                    <p style="margin-top: 8px; font-size: 13px;">${currentUser?.role === 'super_admin' ? 'Click "+ Add New Article" to create one.' : ''}</p>
                 </div>
             `;
             return;
         }
-        
-        articlesList.innerHTML = articles.map(article => `
-            <div class="article-card" data-article-id="${article.id}">
-                <h3>${escapeHtml(article.title)}</h3>
-                <p>${escapeHtml(article.content.length > 200 ? article.content.substring(0, 200) + '...' : article.content)}</p>
-                <div class="meta">
-                    Created: ${new Date(article.createdAt).toLocaleString()}
-                    ${article.updatedAt ? ` | Updated: ${new Date(article.updatedAt).toLocaleString()}` : ''}
+
+        const isSuperAdmin = currentUser?.role === 'super_admin';
+        articlesList.innerHTML = articles.map(article => {
+            const category = article.category ? `<span class="kb-card-category">${escapeHtml(article.category)}</span>` : '';
+            const author = article.created_by_name ? escapeHtml(article.created_by_name) : '—';
+            const created = article.createdAt ? new Date(article.createdAt).toLocaleDateString() : '—';
+            const preview = (article.content || '').length > 200 ? article.content.substring(0, 200) + '...' : (article.content || '');
+            const actions = isSuperAdmin
+                ? `<button type="button" class="btn btn-primary view-article-btn" data-article-id="${article.id}">View</button>
+                   <button type="button" class="btn btn-secondary edit-article-btn" data-article-id="${article.id}">Edit</button>
+                   <button type="button" class="btn btn-danger delete-article-btn" data-article-id="${article.id}">Delete</button>`
+                : `<button type="button" class="btn btn-primary view-article-btn" data-article-id="${article.id}">View</button>`;
+            return `
+            <div class="article-card kb-article-card" data-article-id="${article.id}">
+                <div class="kb-card-header">
+                    <h3 class="kb-card-title">${escapeHtml(article.title)}</h3>
+                    ${category}
                 </div>
-                <div style="margin-top: 12px; display: flex; gap: 8px;">
-                    <button type="button" class="btn btn-primary view-article-btn" data-article-id="${article.id}">View</button>
-                    <button type="button" class="btn btn-danger delete-article-btn" data-article-id="${article.id}">Delete</button>
+                <p class="kb-card-preview">${escapeHtml(preview)}</p>
+                <div class="kb-card-meta">
+                    <span>Created: ${created}</span>
+                    <span>Author: ${author}</span>
                 </div>
+                <div class="kb-card-actions">${actions}</div>
             </div>
-        `).join('');
+            `;
+        }).join('');
         
     } catch (error) {
         articlesList.innerHTML = `<p class="error-message">Error loading articles: ${error.message}</p>`;
@@ -1072,6 +1103,8 @@ let currentArticleData = {
     id: null,
     title: null,
     content: null,
+    category: null,
+    created_by_name: null,
     createdAt: null,
     updatedAt: null
 };
@@ -1085,7 +1118,7 @@ function closeModal(overlay) {
     overlay.classList.remove('active');
     if (overlay.id === 'article-modal') {
         document.getElementById('edit-article-form')?.reset();
-        currentArticleData = { id: null, title: null, content: null, createdAt: null, updatedAt: null };
+        currentArticleData = { id: null, title: null, content: null, category: null, created_by_name: null, createdAt: null, updatedAt: null };
         const viewMode = document.getElementById('article-view-mode');
         const editMode = document.getElementById('article-edit-mode');
         const viewBtns = document.getElementById('article-view-buttons');
@@ -1100,48 +1133,50 @@ function closeModal(overlay) {
 /**
  * Open article view modal. Call with (articleId) to look up from currentArticles, or (id, title, content, createdAt, updatedAt).
  */
-function openArticleViewModal(articleId, title, content, createdAt, updatedAt) {
+function openArticleViewModal(articleId, title, content, createdAt, updatedAt, category, createdByName) {
     if (arguments.length === 1) {
         const article = currentArticles.find(a => a.id === articleId);
         if (!article) {
             console.error('Article not found:', articleId);
             return;
         }
-        openArticleViewModal(article.id, article.title, article.content, article.createdAt, article.updatedAt || '');
+        openArticleViewModal(article.id, article.title, article.content, article.createdAt, article.updatedAt || '', article.category, article.created_by_name);
         return;
     }
-    // Store article data for potential editing
     currentArticleData = {
         id: articleId,
-        title: title.replace(/\\'/g, "'"),
-        content: content.replace(/\\n/g, '\n').replace(/\\'/g, "'"),
+        title: (title || '').replace(/\\'/g, "'"),
+        content: (content || '').replace(/\\n/g, '\n').replace(/\\'/g, "'"),
+        category: category || null,
+        created_by_name: createdByName || null,
         createdAt: createdAt,
         updatedAt: updatedAt
     };
-    
-    // Set modal title
+
     document.getElementById('article-modal-title').textContent = 'Knowledge Base Article';
-    
-    // Populate view mode
     document.getElementById('article-view-title').textContent = currentArticleData.title;
     document.getElementById('article-view-content').textContent = currentArticleData.content;
-    
-    // Set metadata
-    let metaText = `Created: ${new Date(createdAt).toLocaleString()}`;
-    if (updatedAt) {
-        metaText += ` | Updated: ${new Date(updatedAt).toLocaleString()}`;
+    const catEl = document.getElementById('article-view-category');
+    const catGroup = document.getElementById('article-view-category-group');
+    if (catEl && catGroup) {
+        catEl.textContent = currentArticleData.category || '—';
+        catGroup.style.display = currentArticleData.category ? 'block' : 'none';
     }
+    let metaText = `Created: ${createdAt ? new Date(createdAt).toLocaleString() : '—'}`;
+    if (updatedAt) metaText += ` | Updated: ${new Date(updatedAt).toLocaleString()}`;
+    if (currentArticleData.created_by_name) metaText += ` | Author: ${currentArticleData.created_by_name}`;
     document.getElementById('article-view-meta').textContent = metaText;
-    
-    // Show view mode, hide edit mode
+
+    const viewBtns = document.getElementById('article-view-buttons');
+    const editBtn = document.getElementById('article-edit-btn');
+    if (editBtn) editBtn.style.display = currentUser?.role === 'super_admin' ? 'inline-flex' : 'none';
     document.getElementById('article-view-mode').style.display = 'block';
     document.getElementById('article-edit-mode').style.display = 'none';
-    document.getElementById('article-view-buttons').style.display = 'flex';
+    if (viewBtns) viewBtns.style.display = 'flex';
     document.getElementById('article-edit-buttons').style.display = 'none';
-    
-    // Open modal (article-modal is the overlay id)
+
     const modal = document.getElementById('article-modal');
-    if (!modal) return console.error('Modal not found: article-modal');
+    if (!modal) return;
     modal.classList.add('active');
 }
 
@@ -1154,10 +1189,11 @@ function switchToEditMode() {
         return;
     }
     
-    // Populate edit form with current data
     document.getElementById('edit-article-id').value = currentArticleData.id;
     document.getElementById('edit-article-title').value = currentArticleData.title;
     document.getElementById('edit-article-content').value = currentArticleData.content;
+    const editCat = document.getElementById('edit-article-category');
+    if (editCat) editCat.value = currentArticleData.category || '';
     
     // Update modal title
     document.getElementById('article-modal-title').textContent = 'Edit Knowledge Base Article';
@@ -1187,12 +1223,15 @@ function cancelEditMode() {
     // Refresh view mode with current data (may have been updated)
     document.getElementById('article-view-title').textContent = currentArticleData.title;
     document.getElementById('article-view-content').textContent = currentArticleData.content;
-    
-    // Update metadata
-    let metaText = `Created: ${new Date(currentArticleData.createdAt).toLocaleString()}`;
-    if (currentArticleData.updatedAt) {
-        metaText += ` | Updated: ${new Date(currentArticleData.updatedAt).toLocaleString()}`;
+    const catEl = document.getElementById('article-view-category');
+    const catGroup = document.getElementById('article-view-category-group');
+    if (catEl && catGroup) {
+        catEl.textContent = currentArticleData.category || '—';
+        catGroup.style.display = currentArticleData.category ? 'block' : 'none';
     }
+    let metaText = `Created: ${currentArticleData.createdAt ? new Date(currentArticleData.createdAt).toLocaleString() : '—'}`;
+    if (currentArticleData.updatedAt) metaText += ` | Updated: ${new Date(currentArticleData.updatedAt).toLocaleString()}`;
+    if (currentArticleData.created_by_name) metaText += ` | Author: ${currentArticleData.created_by_name}`;
     document.getElementById('article-view-meta').textContent = metaText;
     
     // Show view mode, hide edit mode
@@ -1217,23 +1256,20 @@ async function saveArticleEdit() {
     const articleId = document.getElementById('edit-article-id').value;
     const title = document.getElementById('edit-article-title').value;
     const content = document.getElementById('edit-article-content').value;
-    
+    const category = document.getElementById('edit-article-category')?.value?.trim() || undefined;
     if (!title || !content) {
         showError('Title and content are required');
         return;
     }
-    
     try {
         await apiRequest(`/knowledge-base/${articleId}`, {
             method: 'PUT',
-            body: JSON.stringify({ title, content })
+            body: JSON.stringify({ title, content, category })
         });
-        
         showSuccess('Article updated successfully!');
-        
-        // Update current article data
         currentArticleData.title = title;
         currentArticleData.content = content;
+        currentArticleData.category = category || null;
         currentArticleData.updatedAt = new Date().toISOString();
         
         // Return to view mode with updated data

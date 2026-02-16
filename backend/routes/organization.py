@@ -141,6 +141,7 @@ async def get_organization_members(current_user: dict = Depends(require_admin_or
         members.append({
             "uid": doc.id,
             "email": d.get("email"),
+            "full_name": d.get("full_name") or "",
             "role": d.get("role", "employee"),
         })
     return {"members": members}

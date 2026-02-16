@@ -65,6 +65,7 @@ RESOLUTION_PHRASES = (
 ESCALATION_PHRASES = (
     "still broken", "still not working", "doesn't work", "didn't work",
     "no luck", "not working", "escalate", "speak to someone", "human",
+    "this didn't help", "this didnt help", "didnt help", "wrong", "not helpful",
 )
 CONFIRMATION_KEYWORDS = (
     "done", "completed", "yes", "finished", "ok", "ready", "did it", "completed it",
@@ -330,6 +331,27 @@ def get_article_type(article: Dict[str, Any]) -> str:
     return "guide"
 
 
+def is_flow_capable(article: Dict[str, Any]) -> bool:
+    """
+    Flow-first: True if article can be used for step-by-step troubleshooting.
+    Any article with flow structure OR parseable steps uses flow mode.
+    """
+    if not article:
+        return False
+    if article.get("guided_flow") or (article.get("type") or "").strip().lower() == "guided":
+        return True
+    if isinstance(article.get("flow"), list) and len(article.get("flow", [])) > 0:
+        return True
+    branches = article.get("guided_branches") or article.get("branches")
+    if isinstance(branches, dict) and len(branches) > 0:
+        return True
+    content = (article.get("content") or "").strip()
+    if not content:
+        return False
+    parsed = _parse_numbered_steps(content)
+    return len(parsed) >= 1
+
+
 def universal_normalize_flow(article: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """
     Phase 2: Normalize any article into canonical flow structure.
@@ -429,7 +451,7 @@ def is_confirmation_message(message: str) -> bool:
 
 
 def flow_get_first_message(flow: List[Dict], article_title: str = "") -> str:
-    """Return the first step message (for device question or step 1). Human-like for any topic."""
+    """Return first step only. Never dump full article. Human-like opener."""
     if not flow:
         return "I can help with that. What would you like to do?"
     first = flow[0]
@@ -437,11 +459,11 @@ def flow_get_first_message(flow: List[Dict], article_title: str = "") -> str:
     options = first.get("options") or []
     topic = (article_title or "this").lower()
     if options and "device" in (first.get("step_id") or "").lower():
-        msg = f"Alright — I'll guide you through {topic}. It'll only take a few minutes.\n\nWhat device are you using?\n\n" + "\n".join(
+        msg = f"Great — I'll guide you through {topic}. It'll only take a few minutes.\n\nWhat device are you using?\n\n" + "\n".join(
             f"{i+1}️⃣ {opt.get('label', opt.get('value', '')).replace('-', ' ').title()}" for i, opt in enumerate(options[:5])
         )
     elif not options and first.get("step_id") and "device" not in (first.get("step_id") or "").lower():
-        msg = f"I'll guide you through {topic}. It'll only take a few minutes.\n\n**First step:**\n{msg}\n\nLet me know when you're there."
+        msg = f"Great, I'll guide you through {topic}.\n\n**Step 1:**\n{msg}\n\nLet me know when you're there."
     return msg
 
 

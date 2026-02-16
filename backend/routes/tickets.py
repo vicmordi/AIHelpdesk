@@ -15,7 +15,7 @@ from middleware import verify_token, verify_admin, get_current_user, require_adm
 from flow_engine import (
     normalize_article_to_flow,
     get_article_type,
-    universal_normalize_flow,
+    is_flow_capable,
     flow_get_first_message,
     flow_advance,
     get_completion_reply,
@@ -496,18 +496,17 @@ async def create_ticket(
                     "rejected_article_ids": [],
                 }
             else:
-                # Phase 1/8: Route by article_type — flow = troubleshooting, else = structured answer
-                at = get_article_type(best_article)
+                # FLOW-FIRST: If article can be flow, start step-by-step. NEVER dump full content.
                 summary_short = (ticket.message[:200] + "..." if len(ticket.message) > 200 else ticket.message)
-                if at == "flow":
-                    normalized = normalize_article_to_flow(best_article)
-                    if not normalized:
-                        normalized = {}
-                    flow = normalized.get("flow") or []
+                normalized = normalize_article_to_flow(best_article)
+                flow = (normalized or {}).get("flow") or []
+                use_flow = is_flow_capable(best_article) and flow and len(flow) > 0
+                if use_flow:
+                    # Step-by-step mode only. Send step 1, wait for confirmation.
                     first_msg = flow_get_first_message(flow, article_title=(best_article.get("title") or ""))
                     first_msg = humanize_reply(first_msg)
                     messages.append({"sender": "ai", "message": first_msg, "createdAt": now_iso, "isRead": False})
-                    log_flow_event("flow_start", article_id=best_article.get("id"), title=best_article.get("title"))
+                    log_flow_event("flow_start", article_id=best_article.get("id"), title=best_article.get("title"), article_type=get_article_type(best_article))
                     ticket_data = {
                         "userId": uid,
                         "message": ticket.message,
@@ -1125,6 +1124,29 @@ async def add_message_to_ticket(
 
                 now_iso = datetime.utcnow().isoformat()
                 if next_score >= MIN_SCORE_THRESHOLD and next_article:
+                    if is_flow_capable(next_article):
+                        normalized = normalize_article_to_flow(next_article)
+                        flow = (normalized or {}).get("flow") or []
+                        if flow:
+                            first_msg = flow_get_first_message(flow, article_title=(next_article.get("title") or ""))
+                            ai_msg = {"sender": "ai", "message": humanize_reply(first_msg), "createdAt": now_iso, "isRead": False}
+                            messages.append(ai_msg)
+                            ticket_ref.update({
+                                "messages": messages,
+                                "returned_article_id": next_article.get("id"),
+                                "rejected_article_ids": rejected_ids,
+                                "ai_mode": "guided",
+                                "flow_id": next_article.get("id"),
+                                "current_step": (flow[0].get("step_id", "step_1") if flow else "step_1"),
+                                "troubleshooting_context": {
+                                    "article_id": next_article.get("id"),
+                                    "branch_selected": None,
+                                    "current_step_index": 1,
+                                    "flow_completed": False,
+                                },
+                                "knowledge_used": [next_article.get("title", "")],
+                            })
+                            return {"message": "Message added successfully", "ticket_id": ticket_id, "new_message": new_message, "ai_reply": ai_msg}
                     answer_result = await _answer_from_single_article(original_question, next_article)
                     if answer_result.get("aiReply") and not answer_result.get("escalated"):
                         ai_msg = {"sender": "ai", "message": answer_result["aiReply"], "createdAt": now_iso, "isRead": False}

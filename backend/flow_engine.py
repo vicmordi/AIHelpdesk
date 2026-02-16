@@ -260,6 +260,85 @@ def _filter_intro_sentences(steps: List[str]) -> List[str]:
     return actionable if actionable else steps
 
 
+def _detect_platform_from_message(user_message: str) -> Optional[str]:
+    """Detect iPhone/Android from user message. Returns 'iphone', 'android', or None."""
+    if not user_message:
+        return None
+    m = (user_message or "").lower().strip()
+    if any(x in m for x in ("iphone", "ios", "apple")):
+        return "iphone"
+    if any(x in m for x in ("android", "samsung", "pixel")):
+        return "android"
+    return None
+
+
+def clean_and_format_article(article: Dict[str, Any], user_message: str = "") -> str:
+    """
+    Clean and format article for full-at-once response.
+    - Remove duplicate sections
+    - Filter by platform (iPhone/Android) if user specifies
+    - Remove redundant explanations
+    - Format: intro, numbered steps, closing, escalation offer.
+    All content from KB only. No external knowledge.
+    """
+    title = (article.get("title") or "").strip()
+    content = (article.get("content") or "").strip()
+    topic = (title or "this").lower()
+    topic_short = topic.replace("how to ", "").replace("how ", "").strip() or topic
+
+    # Detect platform from user message
+    platform = _detect_platform_from_message(user_message)
+
+    # Get platform steps if content has multiple platform sections
+    converted = convert_legacy_content_to_flow(title, content, article.get("category", ""))
+    platform_steps = converted.get("_platform_steps") or article.get("_platform_steps")
+    legacy_branches = article.get("guided_branches") or article.get("branches")
+
+    steps: List[str] = []
+    if platform and platform_steps and isinstance(platform_steps, dict):
+        steps = platform_steps.get(platform, []) or []
+        steps = [str(s).strip() for s in steps if s]
+    elif platform and legacy_branches and isinstance(legacy_branches, dict):
+        branch = legacy_branches.get(platform) or legacy_branches.get(platform.replace("_", ""))
+        if isinstance(branch, list):
+            steps = [str(s).strip() for s in branch if s]
+        elif isinstance(branch, dict) and "steps" in branch:
+            steps = [str(s).strip() for s in (branch.get("steps") or []) if s]
+        else:
+            steps = _get_branch_steps_legacy(branch)
+    if not steps:
+        flow = converted.get("flow") or []
+        for s in flow:
+            if (s.get("step_id") or "").lower() == "device":
+                continue
+            msg = s.get("message") or ""
+            if msg:
+                steps.append(str(msg).strip()[:400])
+    if not steps:
+        steps = _parse_numbered_steps(content)
+        steps = _filter_intro_sentences(steps)
+
+    # Dedupe, preserve order
+    seen = set()
+    deduped = []
+    for s in steps:
+        t = (str(s) or "").strip()
+        if not t or len(t) < 5:
+            continue
+        t_lower = t.lower()
+        if t_lower not in seen:
+            seen.add(t_lower)
+            deduped.append(t[:400])
+    steps = deduped if deduped else [content[:400] if content else "Please follow the instructions provided."]
+
+    # Format output
+    intro = f"Sure — here's how to {topic_short}:"
+    step_lines = [f"{i}. {s}" for i, s in enumerate(steps, 1)]
+    closing = "That should complete the process."
+    escalation_offer = "If this does not resolve your issue, let me know and I can escalate this to a support specialist."
+    return f"{intro}\n\n" + "\n".join(step_lines) + f"\n\n{closing}\n\n{escalation_offer}"
+
+
 def _parse_numbered_steps(content: str) -> List[str]:
     """Extract numbered steps (1. 2. or Step 1 Step 2 or - bullet)."""
     if not content or not content.strip():

@@ -13,26 +13,12 @@ from firebase_admin import firestore
 from config import OPENAI_API_KEY
 from middleware import verify_token, verify_admin, get_current_user, require_admin_or_above, require_super_admin
 from flow_engine import (
-    normalize_article_to_flow,
-    convert_article_to_structured_flow,
-    get_flat_steps_from_article,
     get_article_type,
-    is_flow_capable,
-    flow_get_first_message,
-    flow_advance,
-    get_completion_reply,
     get_escalation_reply,
-    is_resolution_message,
     is_escalation_message,
-    is_confirmation_message,
+    clean_and_format_article,
     log_flow_event,
     SUPPORT_AGENT_SYSTEM,
-)
-from conversational_layer import (
-    generate_flow_intro,
-    generate_flow_progress,
-    generate_flow_completion,
-    generate_flow_escalation,
 )
 from kb_search import (
     extract_keywords,
@@ -74,6 +60,8 @@ DISSATISFACTION_PHRASES = (
     "wrong", "incorrect", "not helpful", "not what i asked", "that is not what i asked",
     "not right", "doesn't help", "not relevant", "not the right", "bad answer",
     "useless", "unhelpful", "that's wrong", "this is wrong", "incorrect answer",
+    "this didn't work", "this didnt work", "didn't work", "didnt work", "still not working",
+    "issue unresolved", "still unresolved", "doesn't resolve", "didn't resolve",
 )
 
 
@@ -120,69 +108,17 @@ Respond in a friendly, human-like way—like a real helpdesk agent. Start with a
 
 
 def _escalate_no_kb_match() -> dict:
-    """Standard escalation when no acceptable KB match (Step 4)."""
-    msg = (
-        _build_strict_flow_escalation_message()
-        if USE_STRICT_FLOW
-        else "I could not find a matching solution in your organization's knowledge base. I am escalating this to a support specialist."
-    )
+    """Standard escalation when no acceptable KB match."""
     return {
         "status": "pending_assignment",
         "escalated": True,
         "internal_note": "AI unable to find KB match",
         "aiReply": None,
-        "user_message": msg,
+        "user_message": "I'm going to escalate this to a support specialist so they can assist you further.",
     }
 
 
-# --- Strict Flow: KB steps only, OpenAI conversational wrapping ---
-USE_STRICT_FLOW = True  # Use OpenAI for tone, KB for steps only
-
-
-def _build_strict_flow_first_message(article: dict, topic: str, steps: list, has_device_choice: bool) -> str:
-    """
-    Build first message: OpenAI intro + Step 1 from KB (or device choice).
-    OpenAI generates tone only. Steps come strictly from KB.
-    """
-    intro = generate_flow_intro(openai_client, topic)
-    if has_device_choice:
-        structured = convert_article_to_structured_flow(article)
-        platform = structured.get("_platform_steps") or structured.get("_legacy_branches") or {}
-        options = list(platform.keys()) if isinstance(platform, dict) else []
-        opts_txt = "\n".join(f"{i+1}️⃣ {k.replace('-', ' ').title()}" for i, k in enumerate(options[:5]))
-        return f"{intro}\n\nWhat device are you using?\n\n{opts_txt}\n\nReply with the number or device name."
-    if not steps:
-        return f"{intro}\n\nI don't have step-by-step instructions for this. Would you like me to escalate to support?"
-    step_1 = steps[0]
-    return f"{intro}\n\n**Step 1:** {step_1}\n\nLet me know once you've done this."
-
-
-def _build_strict_flow_step_message(article: dict, step_index: int, total_steps: int, step_text: str, is_last: bool) -> str:
-    """
-    Build step message: OpenAI progress + Step X from KB.
-    OpenAI generates tone only. Step text comes strictly from KB.
-    """
-    topic = (article.get("title") or "this").lower()
-    if step_index == 0 and total_steps >= 1:
-        intro = generate_flow_intro(openai_client, topic)
-        return f"{intro}\n\n**Step 1:** {step_text}\n\nLet me know once you've done this."
-    progress = generate_flow_progress(openai_client, step_index, total_steps)
-    step_num = step_index + 1
-    if is_last:
-        return f"{progress}\n\n**Step {step_num}:** {step_text}\n\nLet me know once you've completed this step."
-    return f"{progress}\n\n**Step {step_num}:** {step_text}\n\nLet me know once this is done."
-
-
-def _build_strict_flow_completion_message(article: dict) -> str:
-    """Build completion: OpenAI completion + confirm prompt. No new steps."""
-    topic = (article.get("title") or "this").lower()
-    completion = generate_flow_completion(openai_client, topic)
-    return f"{completion}\n\nIs everything working correctly now?"
-
-
-def _build_strict_flow_escalation_message() -> str:
-    """Build escalation message via OpenAI. No steps."""
-    return generate_flow_escalation(openai_client)
+ESCALATION_MESSAGE = "I'm going to escalate this to a support specialist so they can assist you further."
 
 
 class TicketRequest(BaseModel):
@@ -560,111 +496,34 @@ async def create_ticket(
                     "rejected_article_ids": [],
                 }
             else:
-                # FLOW-FIRST: If article can be flow, start step-by-step. NEVER dump full content.
+                # FULL ARTICLE AT ONCE: Return cleaned, structured summary. No step-by-step flow.
                 summary_short = (ticket.message[:200] + "..." if len(ticket.message) > 200 else ticket.message)
-                normalized = normalize_article_to_flow(best_article)
-                flow = (normalized or {}).get("flow") or []
-                use_flow = is_flow_capable(best_article) and (flow or convert_article_to_structured_flow(best_article))
-                if use_flow:
-                    # STRICT FLOW: OpenAI for tone, KB for steps only
-                    steps, has_device_choice = get_flat_steps_from_article(best_article)
-                    topic = (best_article.get("title") or "this").lower()
-                    if USE_STRICT_FLOW and (steps or has_device_choice):
-                        first_msg = _build_strict_flow_first_message(best_article, topic, steps, has_device_choice)
-                    else:
-                        first_msg = flow_get_first_message(flow, article_title=(best_article.get("title") or ""))
-                    first_msg = humanize_reply(first_msg)
-                    messages.append({"sender": "ai", "message": first_msg, "createdAt": now_iso, "isRead": False})
-                    log_flow_event("flow_start", article_id=best_article.get("id"), title=best_article.get("title"), article_type=get_article_type(best_article))
-                    # Strict flow state: step_index 0-based, flow_started, flow_completed
-                    ctx = {
-                        "article_id": best_article.get("id"),
-                        "step_index": 0,
-                        "flow_started": True,
-                        "flow_completed": False,
-                        "branch_selected": None,
-                        "current_step_index": 0,
-                    }
-                    if has_device_choice:
-                        ctx["_awaiting_device"] = True
-                    ticket_data = {
-                        "userId": uid,
-                        "message": ticket.message,
-                        "summary": summary_short,
-                        "subject": summary_short,
-                        "description": ticket.message,
-                        "status": "in_progress",
-                        "escalated": False,
-                        "category": best_article.get("category"),
-                        "aiReply": None,
-                        "confidence": float(score),
-                        "knowledge_used": [best_article.get("title", "")],
-                        "internal_note": "",
-                        "messages": messages,
-                        "createdAt": now_iso,
-                        "ai_mode": "guided",
-                        "flow_id": best_article.get("id"),
-                        "current_step": "step_1",
-                        "troubleshooting_context": ctx,
-                        "resolved": False,
-                        "completed": False,
-                        "last_activity_timestamp": now_iso,
-                        "confusion_count": 0,
-                        "current_step_options": [],
-                    }
-                    if normalized and normalized.get("_legacy_branches"):
-                        ticket_data["guided_article_id"] = best_article.get("id")
-                else:
-                    answer_result = await _answer_from_single_article(ticket.message, best_article)
-                    if answer_result.get("escalated") or not answer_result.get("aiReply"):
-                        esc = _escalate_no_kb_match()
-                        messages.append({"sender": "ai", "message": esc["user_message"], "createdAt": now_iso, "isRead": False})
-                        ticket_data = {
-                            "userId": uid,
-                            "message": ticket.message,
-                            "summary": summary_short,
-                            "subject": summary_short,
-                            "description": ticket.message,
-                            "status": esc["status"],
-                            "escalated": True,
-                            "category": None,
-                            "aiReply": None,
-                            "confidence": 0.0,
-                            "knowledge_used": [],
-                            "internal_note": esc["internal_note"],
-                            "messages": messages,
-                            "createdAt": now_iso,
-                            "ai_mode": "article",
-                            "current_step": 0,
-                            "troubleshooting_context": {},
-                            "resolved": False,
-                            "returned_article_id": None,
-                            "rejected_article_ids": [],
-                        }
-                    else:
-                        messages.append({"sender": "ai", "message": answer_result["aiReply"], "createdAt": now_iso, "isRead": False})
-                        ticket_data = {
-                            "userId": uid,
-                            "message": ticket.message,
-                            "summary": summary_short,
-                            "subject": summary_short,
-                            "description": ticket.message,
-                            "status": "auto_resolved",
-                            "escalated": False,
-                            "category": best_article.get("category"),
-                            "aiReply": answer_result["aiReply"],
-                            "confidence": 0.9,
-                            "knowledge_used": [best_article.get("title", "")],
-                            "internal_note": "",
-                            "messages": messages,
-                            "createdAt": now_iso,
-                            "ai_mode": "article",
-                            "current_step": 0,
-                            "troubleshooting_context": {},
-                            "resolved": True,
-                            "returned_article_id": best_article.get("id"),
-                            "rejected_article_ids": [],
-                        }
+                ai_reply = clean_and_format_article(best_article, ticket.message)
+                ai_reply = humanize_reply(ai_reply)
+                messages.append({"sender": "ai", "message": ai_reply, "createdAt": now_iso, "isRead": False})
+                log_flow_event("article_selection", article_id=best_article.get("id"), title=best_article.get("title"))
+                ticket_data = {
+                    "userId": uid,
+                    "message": ticket.message,
+                    "summary": summary_short,
+                    "subject": summary_short,
+                    "description": ticket.message,
+                    "status": "auto_resolved",
+                    "escalated": False,
+                    "category": best_article.get("category"),
+                    "aiReply": ai_reply,
+                    "confidence": float(score),
+                    "knowledge_used": [best_article.get("title", "")],
+                    "internal_note": "",
+                    "messages": messages,
+                    "createdAt": now_iso,
+                    "ai_mode": "article",
+                    "current_step": 0,
+                    "troubleshooting_context": {},
+                    "resolved": False,
+                    "returned_article_id": best_article.get("id"),
+                    "rejected_article_ids": [],
+                }
         except Exception as e:
             print("AI processing error:", str(e))
             esc = _escalate_no_kb_match()
@@ -1155,7 +1014,7 @@ async def add_message_to_ticket(
         }
         messages.append(new_message)
 
-        # Article mode: user says answer was wrong → re-search KB excluding that article (Step 3)
+        # Article mode: user says answer was wrong / issue unresolved → escalate immediately. Do NOT retry.
         if (
             message_request.sender == "user"
             and ticket_data.get("ai_mode") == "article"
@@ -1164,341 +1023,35 @@ async def add_message_to_ticket(
         ):
             user_msg = message_request.message
             if _is_dissatisfaction(user_msg):
-                returned_id = ticket_data.get("returned_article_id")
-                rejected_ids = list(ticket_data.get("rejected_article_ids") or [])
-                if returned_id:
-                    rejected_ids = rejected_ids + [returned_id]
-                # Load org KB (same shape as create_ticket)
-                kb_ref = db.collection("knowledge_base")
-                if organization_id is not None:
-                    kb_stream = kb_ref.where("organization_id", "==", organization_id).stream()
-                else:
-                    kb_stream = kb_ref.stream()
-                articles_for_scoring = []
-                for doc in kb_stream:
-                    article_data = doc.to_dict()
-                    if article_data.get("guided_flow") or ((article_data.get("type") or "").strip().lower() == "guided"):
-                        continue
-                    articles_for_scoring.append({
-                        "id": doc.id,
-                        "title": article_data.get("title", ""),
-                        "content": article_data.get("content", ""),
-                        "category": article_data.get("category", ""),
-                        "tags": article_data.get("tags"),
-                        "summary": article_data.get("summary", ""),
-                    })
-                original_question = ticket_data.get("message", user_msg)
-                keywords = extract_keywords(original_question)
-                print("User question (re-search):", original_question)
-                print("Extracted keywords:", keywords)
-                print("Excluded article IDs:", rejected_ids)
-                next_article, next_score, re_debug = select_best_article(
-                    articles_for_scoring, keywords, exclude_article_ids=rejected_ids, original_query=original_question
-                )
-                log_search(original_question, re_debug, next_article.get("title") if next_article else None)
-
                 now_iso = datetime.utcnow().isoformat()
-                if next_score >= MIN_SCORE_THRESHOLD and next_article:
-                    if is_flow_capable(next_article):
-                        normalized = normalize_article_to_flow(next_article)
-                        flow = (normalized or {}).get("flow") or []
-                        if flow:
-                            first_msg = flow_get_first_message(flow, article_title=(next_article.get("title") or ""))
-                            ai_msg = {"sender": "ai", "message": humanize_reply(first_msg), "createdAt": now_iso, "isRead": False}
-                            messages.append(ai_msg)
-                            ticket_ref.update({
-                                "messages": messages,
-                                "returned_article_id": next_article.get("id"),
-                                "rejected_article_ids": rejected_ids,
-                                "ai_mode": "guided",
-                                "flow_id": next_article.get("id"),
-                                "current_step": (flow[0].get("step_id", "step_1") if flow else "step_1"),
-                                "troubleshooting_context": {
-                                    "article_id": next_article.get("id"),
-                                    "branch_selected": None,
-                                    "current_step_index": 1,
-                                    "flow_completed": False,
-                                },
-                                "knowledge_used": [next_article.get("title", "")],
-                            })
-                            return {"message": "Message added successfully", "ticket_id": ticket_id, "new_message": new_message, "ai_reply": ai_msg}
-                    answer_result = await _answer_from_single_article(original_question, next_article)
-                    if answer_result.get("aiReply") and not answer_result.get("escalated"):
-                        ai_msg = {"sender": "ai", "message": answer_result["aiReply"], "createdAt": now_iso, "isRead": False}
-                        messages.append(ai_msg)
-                        ticket_ref.update({
-                            "messages": messages,
-                            "returned_article_id": next_article.get("id"),
-                            "rejected_article_ids": rejected_ids,
-                            "knowledge_used": [next_article.get("title", "")],
-                        })
-                        return {"message": "Message added successfully", "ticket_id": ticket_id, "new_message": new_message, "ai_reply": ai_msg}
-                # No acceptable next match → escalate (Step 4)
                 esc = _escalate_no_kb_match()
                 messages.append({"sender": "ai", "message": esc["user_message"], "createdAt": now_iso, "isRead": False})
                 ticket_ref.update({
                     "messages": messages,
                     "status": esc["status"],
                     "escalated": True,
-                    "internal_note": (ticket_data.get("internal_note") or "") + " " + esc["internal_note"],
+                    "internal_note": (ticket_data.get("internal_note") or "") + " [User: answer wrong/unresolved]",
                 })
                 return {"message": "Message added successfully", "ticket_id": ticket_id, "new_message": new_message, "ai_reply": {"sender": "ai", "message": esc["user_message"], "createdAt": now_iso}}
 
+        # Guided mode disabled: any legacy guided ticket → escalate
         if (
             message_request.sender == "user"
             and ticket_data.get("ai_mode") == "guided"
             and not ticket_data.get("resolved")
         ):
-            user_msg = message_request.message
             now_iso = datetime.utcnow().isoformat()
-            context = dict(ticket_data.get("troubleshooting_context") or {})
-            confusion = int(ticket_data.get("confusion_count") or 0)
-            completed = bool(ticket_data.get("completed"))
-
-            # Part 5: Resolution detection
-            if is_resolution_message(user_msg):
-                ai_reply = "Awesome! Glad we got that sorted. If you need anything else, I'm here."
-                ai_reply = humanize_reply(ai_reply)
-                messages.append({"sender": "ai", "message": ai_reply, "createdAt": now_iso, "isRead": False})
-                ticket_ref.update({
-                    "messages": messages,
-                    "resolved": True,
-                    "status": "resolved",
-                    "troubleshooting_context": {**context, "resolved_at": now_iso},
-                    "last_activity_timestamp": now_iso,
-                    "completed": True,
-                })
-                print("COMPLETED:", True, "CONTEXT:", context)
-                return {"message": "Message added successfully", "ticket_id": ticket_id, "new_message": new_message, "ai_reply": {"sender": "ai", "message": ai_reply, "createdAt": now_iso}, "resolved": True}
-
-            # Part 6: Escalation — "no"/"still not working" or 3x confusion
-            if is_escalation_message(user_msg) or (completed and user_msg.strip().lower() in ("no", "n", "not yet", "didn't work")):
-                escalation_msg = _build_strict_flow_escalation_message() if USE_STRICT_FLOW else get_escalation_reply()
-                escalation_msg = humanize_reply(escalation_msg)
-                messages.append({"sender": "ai", "message": escalation_msg, "createdAt": now_iso, "isRead": False})
-                ticket_ref.update({
-                    "messages": messages,
-                    "ai_mode": "ai_free",
-                    "status": "escalated",
-                    "escalated": True,
-                    "internal_note": (ticket_data.get("internal_note") or "") + f" [Escalated by user/flow at {now_iso}]",
-                    "last_activity_timestamp": now_iso,
-                })
-                print("ESCALATED: ai_mode=ai_free")
-                return {"message": "Message added successfully", "ticket_id": ticket_id, "new_message": new_message, "ai_reply": {"sender": "ai", "message": escalation_msg, "createdAt": now_iso}}
-
-            # Flow completed: only resolution or escalation — do NOT restart steps
-            flow_done = completed or context.get("flow_completed")
-            if flow_done:
-                msg_lower = user_msg.strip().lower()
-                if msg_lower in ("yes", "y", "yeah", "sure", "all good", "it works", "working"):
-                    ai_reply = "Awesome! Glad we got that sorted. If you need anything else, I'm here."
-                    messages.append({"sender": "ai", "message": humanize_reply(ai_reply), "createdAt": now_iso, "isRead": False})
-                    ticket_ref.update({
-                        "messages": messages,
-                        "resolved": True,
-                        "status": "resolved",
-                        "completed": True,
-                        "troubleshooting_context": {**context, "flow_completed": True},
-                        "last_activity_timestamp": now_iso,
-                    })
-                    return {"message": "Message added successfully", "ticket_id": ticket_id, "new_message": new_message, "ai_reply": {"sender": "ai", "message": ai_reply, "createdAt": now_iso}, "resolved": True}
-                completion_prompt = get_completion_reply()
-                if USE_STRICT_FLOW and context.get("flow_started") and context.get("article_id"):
-                    art_doc_temp = db.collection("knowledge_base").document(context["article_id"]).get()
-                    if art_doc_temp.exists:
-                        article_temp = {"id": art_doc_temp.id, **art_doc_temp.to_dict()}
-                        completion_prompt = _build_strict_flow_completion_message(article_temp)
-                messages.append({"sender": "ai", "message": humanize_reply(completion_prompt), "createdAt": now_iso, "isRead": False})
-                ticket_ref.update({
-                    "messages": messages,
-                    "troubleshooting_context": {**context, "flow_completed": True},
-                    "last_activity_timestamp": now_iso,
-                    "completed": True,
-                })
-                return {"message": "Message added successfully", "ticket_id": ticket_id, "new_message": new_message, "ai_reply": {"sender": "ai", "message": completion_prompt, "createdAt": now_iso}}
-
-            flow_id = ticket_data.get("flow_id") or ticket_data.get("guided_article_id")
-            art_doc = db.collection("knowledge_base").document(flow_id).get() if flow_id else None
-            article_raw = {"id": art_doc.id, **art_doc.to_dict()} if art_doc and art_doc.exists else None
-            normalized = normalize_article_to_flow(article_raw) if article_raw else None
-
-            # STRICT FLOW: OpenAI tone + KB steps only (step_index 0-based, one step at a time)
-            if USE_STRICT_FLOW and context.get("flow_started") and article_raw:
-                device_context = context.get("device_type") or context.get("branch_selected")
-                awaiting_device = context.get("_awaiting_device")
-                msg_lower = user_msg.strip().lower()
-
-                # Device choice: parse selection, lock device, send Step 1
-                if awaiting_device:
-                    structured = convert_article_to_structured_flow(article_raw)
-                    platform = structured.get("_platform_steps") or structured.get("_legacy_branches") or {}
-                    keys = [k.lower() for k in (list(platform.keys()) if isinstance(platform, dict) else [])]
-                    choice = None
-                    if msg_lower.isdigit():
-                        idx = int(msg_lower)
-                        if 1 <= idx <= len(keys):
-                            choice = keys[idx - 1]
-                    for k in keys:
-                        if msg_lower == k or msg_lower in k or k in msg_lower:
-                            choice = k
-                            break
-                    if choice:
-                        new_ctx = {**context, "device_type": choice, "_awaiting_device": False}
-                        steps, _ = get_flat_steps_from_article(article_raw, choice)
-                        if steps:
-                            reply_msg = _build_strict_flow_step_message(article_raw, 0, len(steps), steps[0], len(steps) == 1)
-                            new_ctx["step_index"] = 0
-                        else:
-                            reply_msg = _build_strict_flow_completion_message(article_raw)
-                            new_ctx["flow_completed"] = True
-                        reply_msg = humanize_reply(reply_msg)
-                        messages.append({"sender": "ai", "message": reply_msg, "createdAt": now_iso, "isRead": False})
-                        ticket_ref.update({
-                            "messages": messages,
-                            "troubleshooting_context": new_ctx,
-                            "current_step": "step_1",
-                            "last_activity_timestamp": now_iso,
-                        })
-                        return {"message": "Message added successfully", "ticket_id": ticket_id, "new_message": new_message, "ai_reply": {"sender": "ai", "message": reply_msg, "createdAt": now_iso}}
-                    reply_msg = "I didn't catch that. Please choose your device (e.g. 1 or iPhone)."
-                    messages.append({"sender": "ai", "message": reply_msg, "createdAt": now_iso, "isRead": False})
-                    ticket_ref.update({"messages": messages, "last_activity_timestamp": now_iso})
-                    return {"message": "Message added successfully", "ticket_id": ticket_id, "new_message": new_message, "ai_reply": {"sender": "ai", "message": reply_msg, "createdAt": now_iso}}
-
-                # Step advancement: only on user confirmation, never repeat or go backward
-                if is_confirmation_message(msg_lower):
-                    steps, _ = get_flat_steps_from_article(article_raw, device_context)
-                    step_index = int(context.get("step_index", 0))
-                    total_steps = len(steps)
-
-                    if step_index < total_steps - 1:
-                        next_index = step_index + 1
-                        new_ctx = {**context, "step_index": next_index, "current_step_index": next_index}
-                        step_text = steps[next_index]
-                        is_last = next_index == total_steps - 1
-                        reply_msg = _build_strict_flow_step_message(article_raw, next_index, total_steps, step_text, is_last)
-                        reply_msg = humanize_reply(reply_msg)
-                        messages.append({"sender": "ai", "message": reply_msg, "createdAt": now_iso, "isRead": False})
-                        ticket_ref.update({
-                            "messages": messages,
-                            "troubleshooting_context": new_ctx,
-                            "current_step": f"step_{next_index + 1}",
-                            "last_activity_timestamp": now_iso,
-                        })
-                        return {"message": "Message added successfully", "ticket_id": ticket_id, "new_message": new_message, "ai_reply": {"sender": "ai", "message": reply_msg, "createdAt": now_iso}}
-                    else:
-                        # Final step confirmed: flow_completed, ask if working
-                        new_ctx = {**context, "flow_completed": True, "step_index": total_steps}
-                        reply_msg = _build_strict_flow_completion_message(article_raw)
-                        reply_msg = humanize_reply(reply_msg)
-                        messages.append({"sender": "ai", "message": reply_msg, "createdAt": now_iso, "isRead": False})
-                        ticket_ref.update({
-                            "messages": messages,
-                            "troubleshooting_context": new_ctx,
-                            "completed": True,
-                            "last_activity_timestamp": now_iso,
-                        })
-                        return {"message": "Message added successfully", "ticket_id": ticket_id, "new_message": new_message, "ai_reply": {"sender": "ai", "message": reply_msg, "createdAt": now_iso}}
-
-                # Re-send current step (user didn't confirm)
-                steps, _ = get_flat_steps_from_article(article_raw, device_context)
-                step_index = int(context.get("step_index", 0))
-                if steps and 0 <= step_index < len(steps):
-                    step_text = steps[step_index]
-                    total_steps = len(steps)
-                    is_last = step_index == total_steps - 1
-                    reply_msg = _build_strict_flow_step_message(article_raw, step_index, total_steps, step_text, is_last)
-                    reply_msg = humanize_reply(reply_msg)
-                    messages.append({"sender": "ai", "message": reply_msg, "createdAt": now_iso, "isRead": False})
-                    ticket_ref.update({"messages": messages, "last_activity_timestamp": now_iso})
-                    return {"message": "Message added successfully", "ticket_id": ticket_id, "new_message": new_message, "ai_reply": {"sender": "ai", "message": reply_msg, "createdAt": now_iso}}
-
-            # New flow[] state machine (no legacy branches)
-            if normalized and normalized.get("flow") and not normalized.get("_legacy_branches"):
-                flow = normalized.get("flow") or []
-                current_step_id = ticket_data.get("current_step") or (flow[0].get("step_id") if flow else "step_1")
-                platform_steps = normalized.get("_platform_steps") or {}
-                article_title = normalized.get("title") or article_raw.get("title") or ""
-                next_step, reply_msg, new_context = flow_advance(
-                    flow, current_step_id, context, user_msg,
-                    platform_steps=platform_steps,
-                    article_title=article_title,
-                )
-                if next_step is None and ("That is all" in (reply_msg or "") or "Did this resolve" in (reply_msg or "") or new_context.get("flow_completed")):
-                    completed = True
-                if reply_msg and ("I didn't catch" in reply_msg or "Please choose" in reply_msg):
-                    confusion = confusion + 1
-                else:
-                    confusion = 0
-                new_step_id = next_step.get("step_id") if next_step else current_step_id
-                if next_step is None:
-                    new_step_id = current_step_id
-                log_flow_event("step_progression", ticket_id=ticket_id, step_id=new_step_id, flow_completed=new_context.get("flow_completed"))
-                reply_msg = humanize_reply(reply_msg or "Let me know when you've completed this step.")
-                messages.append({"sender": "ai", "message": reply_msg, "createdAt": now_iso, "isRead": False})
-                step_options = next_step.get("options", []) if next_step else []
-                update_data = {
-                    "messages": messages,
-                    "troubleshooting_context": new_context,
-                    "current_step": new_step_id,
-                    "last_activity_timestamp": now_iso,
-                    "confusion_count": min(confusion, 10),
-                    "completed": completed,
-                    "current_step_options": step_options,
-                }
-                if confusion >= 3:
-                    update_data["ai_mode"] = "ai_free"
-                    update_data["status"] = "escalated"
-                    update_data["escalated"] = True
-                print("STEP:", new_step_id, "CONTEXT:", new_context, "COMPLETED:", completed)
-                ticket_ref.update(update_data)
-                return {"message": "Message added successfully", "ticket_id": ticket_id, "new_message": new_message, "ai_reply": {"sender": "ai", "message": reply_msg, "createdAt": now_iso, "options": step_options}, "resolved": False}
-
-            # Legacy branches: existing _guided_flow_respond
-            guided_article_id = ticket_data.get("guided_article_id")
-            guided_article = None
-            if guided_article_id and article_raw and article_raw.get("id") == guided_article_id:
-                guided_article = article_raw
-            elif guided_article_id:
-                art_ref = db.collection("knowledge_base").document(guided_article_id)
-                art_doc = art_ref.get()
-                if art_doc.exists:
-                    guided_article = {"id": art_doc.id, **art_doc.to_dict()}
-            ai_reply, new_context, resolved, escalate = _guided_flow_respond(
-                ticket_data, message_request.message, guided_article
-            )
-            ai_message = {
-                "sender": "ai",
-                "message": humanize_reply(ai_reply),
-                "createdAt": now_iso,
-                "isRead": False
-            }
-            messages.append(ai_message)
-            update_data = {
+            escalation_msg = ESCALATION_MESSAGE
+            messages.append({"sender": "ai", "message": humanize_reply(escalation_msg), "createdAt": now_iso, "isRead": False})
+            ticket_ref.update({
                 "messages": messages,
-                "troubleshooting_context": new_context,
-                "current_step": new_context.get("step", 0),
+                "ai_mode": "ai_free",
+                "status": "escalated",
+                "escalated": True,
+                "internal_note": (ticket_data.get("internal_note") or "") + " [Flow disabled - escalated]",
                 "last_activity_timestamp": now_iso,
-            }
-            if resolved:
-                update_data["resolved"] = True
-                update_data["status"] = "resolved"
-                update_data["completed"] = True
-            if escalate:
-                update_data["ai_mode"] = "ai_free"
-                update_data["status"] = "escalated"
-                update_data["escalated"] = True
-                update_data["internal_note"] = (ticket_data.get("internal_note") or "") + " [Escalated: user stuck or issue unresolved]"
-            ticket_ref.update(update_data)
-            print("STEP:", new_context.get("step"), "CONTEXT:", new_context, "COMPLETED:", resolved)
-            return {
-                "message": "Message added successfully",
-                "ticket_id": ticket_id,
-                "new_message": new_message,
-                "ai_reply": ai_message,
-                "resolved": resolved,
-            }
+            })
+            return {"message": "Message added successfully", "ticket_id": ticket_id, "new_message": new_message, "ai_reply": {"sender": "ai", "message": escalation_msg, "createdAt": now_iso}}
         else:
             ticket_ref.update({"messages": messages})
             return {"message": "Message added successfully", "ticket_id": ticket_id, "new_message": new_message}

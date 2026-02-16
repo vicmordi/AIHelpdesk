@@ -126,7 +126,66 @@ class MessageRequest(BaseModel):
     sender: str  # Will be validated on backend based on user role
 
 
-# --- Guided troubleshooting: multi-step, branch selection, conversational memory ---
+# --- Guided troubleshooting: human-like conversational flow ---
+
+# Confirmation phrases: user is ready for next step
+CONFIRMATION_KEYWORDS = (
+    "done", "completed", "yes", "next", "finished", "ready", "okay", "ok",
+    "did it", "completed it", "im there", "i'm there", "i am there",
+    "got it", "did that", "all set", "moving on",
+)
+
+# User is stuck or it didn't work
+STUCK_PHRASES = ("stuck", "doesn't work", "doesnt work", "not working", "can't find", "cant find", "i'm stuck", "im stuck", "help", "confused")
+
+
+def _format_step_message(
+    step_index: int,
+    total_steps: int,
+    instruction: str,
+    device_context: str,
+    article_title: str,
+    is_first: bool,
+) -> str:
+    """Human-like step message. Only uses KB instruction; no external knowledge."""
+    device_label = (device_context or "").replace("_", " ").title()
+    topic = article_title or "this"
+    if is_first and step_index == 1:
+        return (
+            f"Perfect 👍 Let's get {topic} set up on your {device_label}.\n\n"
+            f"**Step 1:**\n{instruction}\n\n"
+            "Tell me when you're there."
+        )
+    if step_index < total_steps:
+        return (
+            f"Nice! 👍\n\n**Step {step_index}:**\n{instruction}\n\n"
+            "Tell me when you're done."
+        )
+    return (
+        f"Almost there! 🎯\n\n**Step {step_index}:**\n{instruction}\n\n"
+        "Tell me when you've completed this step."
+    )
+
+
+def _format_final_complete_message(article_title: str) -> str:
+    """Clean ending when all steps are done. No device mixing."""
+    topic = article_title or "this"
+    return (
+        f"Great 🎉 {topic} should now be fully set up.\n\n"
+        "Try sending yourself a test to confirm everything is working.\n\n"
+        "If anything doesn't look right, I'm here to help."
+    )
+
+
+def _format_resolution_confirmed_message() -> str:
+    """When user confirms issue is resolved."""
+    return "Awesome! I've marked this as resolved. If you need anything else, I'm here. 👍"
+
+
+def _format_stuck_or_escalate_message() -> str:
+    """When user says stuck or doesn't work."""
+    return "Let me escalate this to a support specialist who can help further."
+
 
 def _get_article_branches(art: dict) -> dict:
     """Return branches dict from article (guided_branches or branches)."""
@@ -176,8 +235,8 @@ def _try_guided_mode(user_message: str, kb_articles_full: List[dict]) -> dict:
             emoji = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣"][i] if i < 5 else f"{i + 1}."
             option_lines.append(f"{emoji} {label}")
         clarifying_question = (
-            "I can help you with that.\n"
-            "Before we begin, what device are you using?\n\n"
+            "Alright — I'll walk you through this. It'll only take a few minutes.\n\n"
+            "What device are you using?\n\n"
             + "\n".join(option_lines)
         )
         print("GUIDED MODE TRIGGERED:", best_article.get("title"))  # DEBUG
@@ -214,37 +273,46 @@ def _guided_flow_respond(
     guided_article: dict,
 ) -> tuple:
     """
-    Compute next AI reply for guided flow. Returns (ai_reply: str, new_context: dict, resolved: bool).
-    Supports branches with step1/step2/step3 or steps array. Uses device_type (or branch) in context.
+    Compute next AI reply for guided flow. Returns (ai_reply: str, new_context: dict, resolved: bool, escalate: bool).
+    - Locks to device_context once chosen; only pulls steps for that device (never Android after iPhone).
+    - Session state: current_step_index, total_steps, completed_steps.
+    - Human-like conversational tone; clean ending.
+    - Handles "I'm stuck" / "doesn't work" with escalation.
     """
     context = dict((ticket_data.get("troubleshooting_context") or {}))
-    device_type = context.get("device_type") or context.get("branch")
-    step = context.get("step", 0)
+    device_context = context.get("device_type") or context.get("branch")
+    current_step_index = context.get("step", 1)
+    article_title = (guided_article or {}).get("title", "")
     branches = _get_article_branches(guided_article or {})
+
     if not isinstance(branches, dict):
-        return ("I'm sorry, I couldn't load the steps. Please contact support.", context, False)
+        return ("I'm sorry, I couldn't load the steps. Please contact support.", context, False, False)
+
+    # Only pull steps for the LOCKED device (never mix iPhone + Android)
+    steps = _get_branch_steps(branches.get(device_context)) if device_context else []
+    total_steps = len(steps)
+    context["total_steps"] = total_steps
 
     msg_lower = (user_message or "").lower().strip()
 
-    # Resolved detection (explicit phrases always resolve; "yes" only when we're past last step)
-    steps_for_resolve = _get_branch_steps(branches.get(device_type)) if device_type else []
-    current_for_resolve = context.get("step", 1)
-    explicit_resolve = any(x in msg_lower for x in ("resolved", "fixed", "it works", "solved", "yes it did", "that worked", "all good"))
-    yes_resolve = "yes" in msg_lower and current_for_resolve >= len(steps_for_resolve)
+    # User is stuck or it doesn't work -> escalate
+    if any(p in msg_lower for p in STUCK_PHRASES):
+        context["escalated_stuck"] = True
+        return (_format_stuck_or_escalate_message(), context, False, True)
+
+    # Resolved detection: user confirms issue is fixed
+    explicit_resolve = any(x in msg_lower for x in ("resolved", "fixed", "it works", "solved", "yes it did", "that worked", "all good", "thank you", "thanks"))
+    yes_resolve = "yes" in msg_lower and current_step_index >= total_steps
     if explicit_resolve or yes_resolve:
         context["resolved_confirmed"] = True
-        return (
-            "Great! I've marked this ticket as resolved. If you need anything else, feel free to submit a new ticket.",
-            context,
-            True,
-        )
+        return (_format_resolution_confirmed_message(), context, True, False)
 
-    # IF device_type is NOT set: parse user reply for iphone/android, set device_type, return step 1 only
-    if not device_type:
+    # DEVICE NOT LOCKED: parse user reply for iPhone/Android, lock device_context
+    if not device_context:
         branch_names = list(branches.keys())
         choice = None
         for i, name in enumerate(branch_names):
-            if msg_lower in (str(i + 1), name.lower(), name.lower().replace(" ", "")):
+            if msg_lower in (str(i + 1), name.lower(), name.lower().replace(" ", "").replace("-", "")):
                 choice = name
                 break
         if not choice and len(msg_lower) <= 30:
@@ -256,50 +324,61 @@ def _guided_flow_respond(
             context["device_type"] = choice
             context["branch"] = choice
             context["step"] = 1
+            context["device_context"] = choice
             steps = _get_branch_steps(branches.get(choice))
             if steps:
-                return (
-                    f"**Step 1:**\n{steps[0]}\n\nLet me know when you've completed this step.",
-                    context,
-                    False,
+                reply = _format_step_message(
+                    step_index=1,
+                    total_steps=len(steps),
+                    instruction=steps[0],
+                    device_context=choice,
+                    article_title=article_title,
+                    is_first=True,
                 )
-            return ("You're all set for that option. Did this solve your issue?", context, False)
+                return (reply, context, False, False)
+            return ("You're all set for that option. Did this solve your issue?", context, False, False)
         return (
-            "I didn't catch that. Please reply with the number or name of your option (e.g. 1 or iPhone).",
+            "I didn't catch that. Please reply with the number or name (e.g. 1 or iPhone).",
             context,
+            False,
             False,
         )
 
-    # ELSE: we have device_type, advance step or finish
-    steps = _get_branch_steps(branches.get(device_type))
-    current_step = context.get("step", 1)
-
-    done_keywords = ("done", "completed", "yes", "next", "finished", "ready", "did it", "completed it")
-    if any(x in msg_lower for x in done_keywords):
-        next_step = current_step + 1
-        if next_step <= len(steps):
-            context["step"] = next_step
-            reply = f"**Step {next_step}:**\n{steps[next_step - 1]}\n\nLet me know when you've completed this step."
-            return (reply, context, False)
-        else:
-            return (
-                "You've completed all the steps. Did this solve your issue? (Reply yes if it's resolved.)",
-                context,
-                False,
+    # DEVICE LOCKED: advance step on confirmation
+    if any(x in msg_lower for x in CONFIRMATION_KEYWORDS):
+        next_index = current_step_index + 1
+        if next_index <= total_steps:
+            context["step"] = next_index
+            instruction = steps[next_index - 1]
+            reply = _format_step_message(
+                step_index=next_index,
+                total_steps=total_steps,
+                instruction=instruction,
+                device_context=device_context,
+                article_title=article_title,
+                is_first=(next_index == 1),
             )
+            return (reply, context, False, False)
+        else:
+            # Clean ending: all steps done
+            reply = _format_final_complete_message(article_title)
+            return (reply, context, False, False)
 
-    if current_step > len(steps):
-        return (
-            "You've completed all the steps. Did this solve your issue? (Reply yes or 'it works' if resolved.)",
-            context,
-            False,
-        )
+    if current_step_index > total_steps:
+        reply = _format_final_complete_message(article_title)
+        return (reply, context, False, False)
 
-    return (
-        f"**Step {current_step}:**\n{steps[current_step - 1]}\n\nLet me know when you've completed this step.",
-        context,
-        False,
+    # Re-send current step (user didn't confirm)
+    instruction = steps[current_step_index - 1]
+    reply = _format_step_message(
+        step_index=current_step_index,
+        total_steps=total_steps,
+        instruction=instruction,
+        device_context=device_context,
+        article_title=article_title,
+        is_first=(current_step_index == 1),
     )
+    return (reply, context, False, False)
 
 
 class TicketResponse(BaseModel):
@@ -1196,13 +1275,12 @@ async def add_message_to_ticket(
                 art_doc = art_ref.get()
                 if art_doc.exists:
                     guided_article = {"id": art_doc.id, **art_doc.to_dict()}
-            ai_reply, new_context, resolved = _guided_flow_respond(
+            ai_reply, new_context, resolved, escalate = _guided_flow_respond(
                 ticket_data, message_request.message, guided_article
             )
-            ai_reply = humanize_reply(ai_reply)
             ai_message = {
                 "sender": "ai",
-                "message": ai_reply,
+                "message": humanize_reply(ai_reply),
                 "createdAt": now_iso,
                 "isRead": False
             }
@@ -1217,6 +1295,11 @@ async def add_message_to_ticket(
                 update_data["resolved"] = True
                 update_data["status"] = "resolved"
                 update_data["completed"] = True
+            if escalate:
+                update_data["ai_mode"] = "ai_free"
+                update_data["status"] = "escalated"
+                update_data["escalated"] = True
+                update_data["internal_note"] = (ticket_data.get("internal_note") or "") + " [Escalated: user stuck or issue unresolved]"
             ticket_ref.update(update_data)
             print("STEP:", new_context.get("step"), "CONTEXT:", new_context, "COMPLETED:", resolved)
             return {

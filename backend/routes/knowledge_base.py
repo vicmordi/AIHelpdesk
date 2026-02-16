@@ -22,7 +22,8 @@ class KnowledgeBaseArticle(BaseModel):
     content: str
     category: Optional[str] = None
     guided_flow: Optional[bool] = False
-    guided_branches: Optional[Dict[str, Any]] = None  # e.g. {"iphone": {"steps": ["...", "..."]}, "android": {"steps": [...]}}
+    guided_branches: Optional[Dict[str, Any]] = None  # e.g. {"iphone": {"steps": ["..."]}, "android": {"steps": [...]}}
+    branches: Optional[Dict[str, Any]] = None  # e.g. {"iphone": {"step1": "...", "step2": "..."}, "android": {"step1": "...", "step2": "..."}}
 
 
 class KnowledgeBaseResponse(BaseModel):
@@ -62,6 +63,8 @@ async def create_article(
             article_data["guided_flow"] = True
             if article.guided_branches:
                 article_data["guided_branches"] = article.guided_branches
+            if article.branches:
+                article_data["branches"] = article.branches
         doc_ref = db.collection("knowledge_base").add(article_data)
         article_id = doc_ref[1].id
         return {"message": "Article created successfully", "id": article_id, **article_data}
@@ -97,6 +100,7 @@ async def get_articles(current_user: dict = Depends(require_admin_or_above)):
                 "created_by_name": article_data.get("created_by_name") or "",
                 "guided_flow": article_data.get("guided_flow", False),
                 "guided_branches": article_data.get("guided_branches"),
+                "branches": article_data.get("branches"),
             })
         result.sort(key=lambda x: x.get("createdAt", ""), reverse=True)
         return {"articles": result}
@@ -137,6 +141,8 @@ async def update_article(
             updates["guided_flow"] = article.guided_flow
         if hasattr(article, "guided_branches") and article.guided_branches is not None:
             updates["guided_branches"] = article.guided_branches
+        if hasattr(article, "branches") and article.branches is not None:
+            updates["branches"] = article.branches
         article_ref.update(updates)
         return {"message": "Article updated successfully", "id": article_id, "title": article.title, "content": article.content}
     except HTTPException:

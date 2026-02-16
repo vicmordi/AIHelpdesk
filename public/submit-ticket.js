@@ -480,7 +480,7 @@ async function openTicketModal(ticketId) {
         // If no messages array exists, create one from legacy fields
         let conversationHtml = '';
         if (messages.length === 0) {
-            // Legacy: Create messages from original ticket structure
+            // Legacy: Create messages from original ticket structure (never show full article in guided mode)
             conversationHtml = `
                 <div class="message-item user">
                     <div class="message-sender">You</div>
@@ -488,7 +488,7 @@ async function openTicketModal(ticketId) {
                     <div class="message-time">${new Date(ticket.createdAt).toLocaleString()}</div>
                 </div>
             `;
-            if (ticket.aiReply) {
+            if (ticket.aiReply && ticket.ai_mode !== 'guided') {
                 conversationHtml += `
                     <div class="message-item ai">
                         <div class="message-sender">AI Assistant</div>

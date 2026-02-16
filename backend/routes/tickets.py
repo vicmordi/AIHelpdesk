@@ -35,42 +35,79 @@ class MessageRequest(BaseModel):
 
 # --- Guided troubleshooting: multi-step, branch selection, conversational memory ---
 
+def _get_article_branches(art: dict) -> dict:
+    """Return branches dict from article (guided_branches or branches)."""
+    b = art.get("guided_branches") or art.get("branches")
+    return b if isinstance(b, dict) else {}
+
+
 def _try_guided_mode(user_message: str, kb_articles_full: List[dict]) -> dict:
     """
     If a matching article has guided_flow with multiple branches, return clarifying question.
-    kb_articles_full: list of { "id", "title", "content", "guided_flow", "guided_branches" }.
+    Guided mode has PRIORITY: we never return full article for guided articles.
+    kb_articles_full: list of { "id", "title", "content", "guided_flow", "guided_branches" or "branches" }.
     Returns: { "use_guided": True, "clarifying_question": str, "matched_article_id": str } or { "use_guided": False }.
     """
     msg_lower = (user_message or "").lower().strip()
     if not msg_lower:
         return {"use_guided": False}
+    # Significant words from user message (length > 2)
+    msg_words = set(w for w in msg_lower.split() if len(w) > 2)
     for art in kb_articles_full:
-        if not art.get("guided_flow") or not art.get("guided_branches"):
+        if not art.get("guided_flow"):
             continue
-        branches = art["guided_branches"]
+        branches = _get_article_branches(art)
         if not isinstance(branches, dict) or len(branches) < 2:
             continue
         title = (art.get("title") or "").lower()
         content = (art.get("content") or "").lower()
-        if not title and not content:
+        combined = f"{title} {content}"
+        if not combined.strip():
             continue
-        if title and title in msg_lower:
-            pass
-        elif any(w in msg_lower for w in title.split() if len(w) > 2):
-            pass
-        elif any(w in content for w in msg_lower.split() if len(w) > 3):
-            pass
+        # Match: any significant word from message appears in article title/content
+        if not msg_words:
+            match = True
         else:
+            match = any(w in combined for w in msg_words)
+        if not match:
             continue
+        # Build clarifying message (exact style: device question with emoji numbers)
         branch_names = list(branches.keys())
-        options = "\n".join([f"{i + 1}. {b.replace('_', ' ').title()}" for i, b in enumerate(branch_names)])
-        clarifying_question = f"I can help you with that. Which option applies to you?\n\n{options}\n\nPlease reply with the number or name."
+        option_lines = []
+        for i, key in enumerate(branch_names):
+            label = key.replace("_", " ").title()
+            emoji = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣"][i] if i < 5 else f"{i + 1}."
+            option_lines.append(f"{emoji} {label}")
+        clarifying_question = (
+            "I can help you with that.\n"
+            "Before we begin, what device are you using?\n\n"
+            + "\n".join(option_lines)
+        )
+        print("GUIDED MODE TRIGGERED:", art.get("title"))  # DEBUG
         return {
             "use_guided": True,
             "clarifying_question": clarifying_question,
             "matched_article_id": art.get("id"),
         }
     return {"use_guided": False}
+
+
+def _get_branch_steps(branch_data) -> List[str]:
+    """Get ordered steps from branch: step1, step2, step3... or steps array."""
+    if not branch_data:
+        return []
+    if isinstance(branch_data, list):
+        return list(branch_data)
+    if isinstance(branch_data, dict):
+        if "steps" in branch_data and isinstance(branch_data["steps"], list):
+            return list(branch_data["steps"])
+        out = []
+        k = 1
+        while f"step{k}" in branch_data:
+            out.append(branch_data[f"step{k}"])
+            k += 1
+        return out
+    return []
 
 
 def _guided_flow_respond(
@@ -80,18 +117,23 @@ def _guided_flow_respond(
 ) -> tuple:
     """
     Compute next AI reply for guided flow. Returns (ai_reply: str, new_context: dict, resolved: bool).
+    Supports branches with step1/step2/step3 or steps array. Uses device_type (or branch) in context.
     """
     context = dict((ticket_data.get("troubleshooting_context") or {}))
-    branch = context.get("branch")
+    device_type = context.get("device_type") or context.get("branch")
     step = context.get("step", 0)
-    branches = (guided_article or {}).get("guided_branches") or {}
+    branches = _get_article_branches(guided_article or {})
     if not isinstance(branches, dict):
         return ("I'm sorry, I couldn't load the steps. Please contact support.", context, False)
 
     msg_lower = (user_message or "").lower().strip()
 
-    # Resolved detection
-    if any(x in msg_lower for x in ("resolved", "fixed", "it works", "solved", "yes it did", "that worked", "all good")):
+    # Resolved detection (explicit phrases always resolve; "yes" only when we're past last step)
+    steps_for_resolve = _get_branch_steps(branches.get(device_type)) if device_type else []
+    current_for_resolve = context.get("step", 1)
+    explicit_resolve = any(x in msg_lower for x in ("resolved", "fixed", "it works", "solved", "yes it did", "that worked", "all good"))
+    yes_resolve = "yes" in msg_lower and current_for_resolve >= len(steps_for_resolve)
+    if explicit_resolve or yes_resolve:
         context["resolved_confirmed"] = True
         return (
             "Great! I've marked this ticket as resolved. If you need anything else, feel free to submit a new ticket.",
@@ -99,26 +141,24 @@ def _guided_flow_respond(
             True,
         )
 
-    if not branch:
+    # IF device_type is NOT set: parse user reply for iphone/android, set device_type, return step 1 only
+    if not device_type:
         branch_names = list(branches.keys())
         choice = None
         for i, name in enumerate(branch_names):
             if msg_lower in (str(i + 1), name.lower(), name.lower().replace(" ", "")):
                 choice = name
                 break
-        if not choice and len(msg_lower) <= 20:
+        if not choice and len(msg_lower) <= 30:
             for name in branch_names:
                 if name.lower() in msg_lower or msg_lower in name.lower():
                     choice = name
                     break
         if choice:
+            context["device_type"] = choice
             context["branch"] = choice
             context["step"] = 1
-            steps = (branches.get(choice) or {}).get("steps") if isinstance(branches.get(choice), dict) else []
-            if isinstance(branches.get(choice), list):
-                steps = branches.get(choice)
-            if not steps:
-                steps = []
+            steps = _get_branch_steps(branches.get(choice))
             if steps:
                 return (
                     f"**Step 1:**\n{steps[0]}\n\nLet me know when you've completed this step.",
@@ -132,15 +172,12 @@ def _guided_flow_respond(
             False,
         )
 
-    steps = (branches.get(branch) or {}).get("steps") if isinstance(branches.get(branch), dict) else []
-    if isinstance(branches.get(branch), list):
-        steps = branches.get(branch)
-    if not steps:
-        steps = []
+    # ELSE: we have device_type, advance step or finish
+    steps = _get_branch_steps(branches.get(device_type))
+    current_step = context.get("step", 1)
 
     done_keywords = ("done", "completed", "yes", "next", "finished", "ready", "did it", "completed it")
     if any(x in msg_lower for x in done_keywords):
-        current_step = context.get("step", 1)
         next_step = current_step + 1
         if next_step <= len(steps):
             context["step"] = next_step
@@ -153,7 +190,7 @@ def _guided_flow_respond(
                 False,
             )
 
-    if step >= len(steps):
+    if current_step > len(steps):
         return (
             "You've completed all the steps. Did this solve your issue? (Reply yes or 'it works' if resolved.)",
             context,
@@ -161,7 +198,7 @@ def _guided_flow_respond(
         )
 
     return (
-        f"**Step {step}:**\n{steps[step - 1]}\n\nLet me know when you've completed this step.",
+        f"**Step {current_step}:**\n{steps[current_step - 1]}\n\nLet me know when you've completed this step.",
         context,
         False,
     )
@@ -205,17 +242,21 @@ async def create_ticket(
         kb_articles_full = []
         for doc in kb_stream:
             article_data = doc.to_dict()
-            knowledge_base.append({
-                "title": article_data.get("title", ""),
-                "content": article_data.get("content", "")
-            })
+            guided_flow = article_data.get("guided_flow", False)
             kb_articles_full.append({
                 "id": doc.id,
                 "title": article_data.get("title", ""),
                 "content": article_data.get("content", ""),
-                "guided_flow": article_data.get("guided_flow", False),
+                "guided_flow": guided_flow,
                 "guided_branches": article_data.get("guided_branches"),
+                "branches": article_data.get("branches"),
             })
+            # Exclude guided articles from full-article AI so we NEVER return their content
+            if not guided_flow:
+                knowledge_base.append({
+                    "title": article_data.get("title", ""),
+                    "content": article_data.get("content", ""),
+                })
 
         guided = _try_guided_mode(ticket.message, kb_articles_full)
         messages = [

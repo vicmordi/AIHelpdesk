@@ -24,6 +24,7 @@ from flow_engine import (
 from kb_search import (
     extract_keywords,
     select_best_article,
+    log_search,
     MIN_SCORE_THRESHOLD,
 )
 
@@ -444,11 +445,10 @@ async def create_ticket(
                             "summary": a.get("summary", ""),
                         })
                     keywords = extract_keywords(ticket.message)
-                    print("User question:", ticket.message)
-                    print("Extracted keywords:", keywords)
-                    best_article, score = select_best_article(articles_for_scoring, keywords, exclude_article_ids=[])
-                    print("Selected article:", best_article.get("title") if best_article else None)
-                    print("Score:", score)
+                    best_article, score, debug_info = select_best_article(
+                        articles_for_scoring, keywords, exclude_article_ids=[], original_query=ticket.message
+                    )
+                    log_search(ticket.message, debug_info, best_article.get("title") if best_article else None)
 
                     if score < MIN_SCORE_THRESHOLD or not best_article:
                         esc = _escalate_no_kb_match()
@@ -1070,9 +1070,10 @@ async def add_message_to_ticket(
                 print("User question (re-search):", original_question)
                 print("Extracted keywords:", keywords)
                 print("Excluded article IDs:", rejected_ids)
-                next_article, next_score = select_best_article(articles_for_scoring, keywords, exclude_article_ids=rejected_ids)
-                print("Selected article:", next_article.get("title") if next_article else None)
-                print("Score:", next_score)
+                next_article, next_score, re_debug = select_best_article(
+                    articles_for_scoring, keywords, exclude_article_ids=rejected_ids, original_query=original_question
+                )
+                log_search(original_question, re_debug, next_article.get("title") if next_article else None)
 
                 now_iso = datetime.utcnow().isoformat()
                 if next_score >= MIN_SCORE_THRESHOLD and next_article:

@@ -1,33 +1,75 @@
 """
-Conversational flow engine: legacy conversion, flow matching, step execution, resolution/escalation.
+Universal troubleshooting flow engine: classification, normalization, step execution, lifecycle.
+Production-grade conversational engine for all KB article types.
 """
 
 import re
+import random
 from typing import List, Dict, Any, Optional, Tuple
 
-# --- Human-like response system prompt (Part 3) ---
+# --- Phase 1: Universal article classification ---
+ARTICLE_TYPES = ("flow", "guide", "single_action", "reference")
+
+# --- Response variation pools (Phase 6: human-like rotation) ---
+ADVANCE_VARIATIONS = (
+    "Nice, we're making progress.",
+    "Good, let's move to the next step.",
+    "Alright, here's what to do next.",
+    "Great job, almost there.",
+    "Perfect! 👍",
+    "Got it.",
+)
+CLARIFICATION_VARIATIONS = (
+    "I didn't catch that. Please choose one of the options above.",
+    "Could you pick one of the options?",
+    "Which option applies to you?",
+)
+COMPLETION_VARIATIONS = (
+    "You're all set. This should resolve the issue.\n\nIf you're still experiencing problems, I can escalate this to a support engineer.",
+    "That's everything on my side. If it's still not working, I can escalate this to a support engineer.",
+    "You're all set. If you're still having issues, I can escalate this to a support specialist.",
+)
+ESCALATION_VARIATIONS = (
+    "I'm going to escalate this to a support specialist for further assistance.",
+    "Let me escalate this to a support engineer who can help further.",
+    "I'll pass this to a support specialist.",
+)
+
+
+def _pick(items: tuple) -> str:
+    """Safe random choice for response variation."""
+    if not items:
+        return ""
+    return random.choice(items)
+
+
+def log_flow_event(event: str, **kwargs: Any) -> None:
+    """Phase 9: Logging for article selection, branch, step progression."""
+    parts = [f"FLOW | {event}"]
+    for k, v in kwargs.items():
+        parts.append(f"{k}={v}")
+    print(" | ".join(parts))
+
+
+# --- Legacy compatibility ---
 SUPPORT_AGENT_SYSTEM = """You are a professional IT support technician.
-Speak naturally and briefly.
-Guide users step-by-step.
-Ask one question at a time.
-Wait for confirmation before continuing.
-Never dump full instructions at once.
-Sound helpful and calm.
+Speak naturally and briefly. Guide users step-by-step.
 Reply with ONLY the message to send to the user, no preamble."""
 
-# --- Resolution phrases (Part 5) ---
 RESOLUTION_PHRASES = (
     "it's working", "it is working", "its working",
     "resolved", "fixed", "thank you", "thanks", "that worked",
     "all good", "all set", "got it", "working now", "solved",
-    "yes it did", "that did it", "perfect",
+    "yes it did", "that did it", "perfect", "fixed", "that worked",
 )
-
-# --- Escalation triggers (Part 6) ---
-ESCALATION_PHRASES = ("still broken", "still not working", "doesn't work", "didn't work", "no luck", "not working", "escalate", "speak to someone", "human")
+ESCALATION_PHRASES = (
+    "still broken", "still not working", "doesn't work", "didn't work",
+    "no luck", "not working", "escalate", "speak to someone", "human",
+)
 CONFIRMATION_KEYWORDS = (
     "done", "completed", "yes", "finished", "ok", "ready", "did it", "completed it",
     "i'm there", "im there", "i am there", "ive gone", "i've gone", "got it", "did that",
+    "next", "fixed", "that worked",
 )
 
 
@@ -272,6 +314,64 @@ def _get_branch_steps_legacy(branch_data: Any) -> List[str]:
     return []
 
 
+def get_article_type(article: Dict[str, Any]) -> str:
+    """
+    Phase 1: Universal classification. Returns one of flow, guide, single_action, reference.
+    Backward compat: if article_type missing, derive from type / guided_flow.
+    """
+    at = (article.get("article_type") or "").strip().lower()
+    if at in ARTICLE_TYPES:
+        return at
+    t = (article.get("type") or "").strip().lower()
+    if t == "guided" or article.get("guided_flow"):
+        return "flow"
+    if t == "static":
+        return "guide"
+    return "guide"
+
+
+def universal_normalize_flow(article: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """
+    Phase 2: Normalize any article into canonical flow structure.
+    Returns: { "type": "flow", "id", "title", "steps": [{step, text}], "branches": {branch_name: [step_texts]} }
+    or None if not a flow article.
+    """
+    if get_article_type(article) != "flow":
+        return None
+    normalized = normalize_article_to_flow(article)
+    if not normalized:
+        return None
+    aid = normalized.get("id") or article.get("id")
+    title = normalized.get("title") or article.get("title") or ""
+    branches = normalized.get("_platform_steps") or normalized.get("_legacy_branches")
+    steps_flat: List[Dict[str, Any]] = []
+    branches_out: Dict[str, List[str]] = {}
+
+    if isinstance(branches, dict) and len(branches) >= 1:
+        for branch_name, step_list in branches.items():
+            if isinstance(step_list, list):
+                branches_out[str(branch_name).lower()] = [str(s).strip() for s in step_list if s]
+        if branches_out:
+            first_branch = next(iter(branches_out.values()), [])
+            steps_flat = [{"step": i + 1, "text": t} for i, t in enumerate(first_branch)]
+    flow = normalized.get("flow") or []
+    if not steps_flat and flow:
+        for i, s in enumerate(flow):
+            if (s.get("step_id") or "").startswith("step_") or (s.get("step_id") or "").startswith("platform_step_"):
+                steps_flat.append({"step": i + 1, "text": s.get("message", "").strip()})
+    if not steps_flat and flow:
+        steps_flat = [{"step": i + 1, "text": s.get("message", "").strip()} for i, s in enumerate(flow) if s.get("message")]
+
+    return {
+        "type": "flow",
+        "id": aid,
+        "title": title,
+        "steps": steps_flat,
+        "branches": branches_out,
+        "_normalized": normalized,
+    }
+
+
 def match_flow_by_trigger(user_message: str, articles: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
     """
     Search KB by relevance scoring (intent-aware). Returns best guided article only if score >= threshold.
@@ -345,22 +445,33 @@ def flow_get_first_message(flow: List[Dict], article_title: str = "") -> str:
     return msg
 
 
+def get_completion_reply() -> str:
+    """Phase 5: Smart flow termination message (variation)."""
+    return _pick(COMPLETION_VARIATIONS)
+
+
+def get_escalation_reply() -> str:
+    """Phase 6: Escalation message (variation)."""
+    return _pick(ESCALATION_VARIATIONS)
+
+
 def _format_platform_step(
     step_index: int, total_steps: int, instruction: str,
     device: str, article_title: str, is_first: bool,
 ) -> str:
-    """Human-like step message for platform-specific flow."""
+    """Human-like step message for platform-specific flow (with variation)."""
+    advance = _pick(ADVANCE_VARIATIONS)
     device_label = (device or "").replace("_", " ").title()
     topic = article_title or "this"
     if is_first and step_index == 1:
         return (
-            f"Perfect 👍 I'll guide you through setting up {topic} on your {device_label}.\n\n"
+            f"{advance} I'll guide you through {topic} on your {device_label}.\n\n"
             f"**First step:**\n{instruction}\n\n"
             "Let me know when you're there."
         )
     if step_index < total_steps:
         return (
-            f"Perfect! 👍\n\n**Step {step_index}:**\n{instruction}\n\n"
+            f"{advance}\n\n**Step {step_index}:**\n{instruction}\n\n"
             "Let me know when you've done that."
         )
     return (
@@ -421,8 +532,9 @@ def flow_advance(
                     inst = steps[0]
                     reply = _format_platform_step(1, len(steps), inst, choice, article_title, is_first=True)
                     return ({"step_id": "platform_step_1", "message": inst}, reply, context)
-            return (None, "That is all I have. Let me know if that works for you or if you want me to escalate your problem to support.", context)
-        return (current_step, "I didn't catch that. Please choose one of the options (e.g. iPhone or Android).", context)
+            context["flow_completed"] = True
+            return (None, get_completion_reply(), context)
+        return (current_step, _pick(CLARIFICATION_VARIATIONS), context)
 
     # Platform steps flow: we have device locked, use ONLY that device's steps
     if platform_steps and device_context and steps:
@@ -434,7 +546,8 @@ def flow_advance(
                 reply = _format_platform_step(next_idx, total_steps, inst, device_context, article_title, is_first=False)
                 return ({"step_id": f"platform_step_{next_idx}", "message": inst}, reply, context)
             else:
-                return (None, "That is all I have. Let me know if that works for you or if you want me to escalate your problem to support.", context)
+                context["flow_completed"] = True
+                return (None, get_completion_reply(), context)
         # Re-send current step
         if step_index <= total_steps:
             inst = steps[step_index - 1]
@@ -461,18 +574,21 @@ def flow_advance(
             idx = int((next_id or "step_1").replace("step_", "") or 1)
             reply = _humanize_step(next_step, idx, total_instruction_steps)
             return (next_step, reply, context)
-        return (None, "That is all I have. Let me know if that works for you or if you want me to escalate your problem to support.", context)
+        context["flow_completed"] = True
+        return (None, get_completion_reply(), context)
 
     if is_confirmation_message(msg_lower):
         next_id = current_step.get("next") or "end"
         if next_id == "end":
-            return (None, "That is all I have. Let me know if that works for you or if you want me to escalate your problem to support.", context)
+            context["flow_completed"] = True
+            return (None, get_completion_reply(), context)
         next_step = next((s for s in flow if s.get("step_id") == next_id), None)
         if next_step:
             idx = int((next_id or "step_1").replace("step_", "") or 1)
             reply = _humanize_step(next_step, idx, total_instruction_steps)
             return (next_step, reply, context)
-        return (None, "That is all I have. Let me know if that works for you or if you want me to escalate your problem to support.", context)
+        context["flow_completed"] = True
+        return (None, get_completion_reply(), context)
 
     raw = current_step.get("message", "Let me know when you've completed this step.")
     idx = int((current_step.get("step_id") or "step_1").replace("step_", "") or 1)

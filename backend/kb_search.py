@@ -1,6 +1,7 @@
 """
-Knowledge base retrieval: intent classification, relevance scoring, disambiguation.
-Prevents wrong-article returns (e.g. "Reset Password" for "How do I set up company email?").
+Phase 3: Universal weighted article retrieval.
+Tokenize query and article fields; score by weight (title > tags > category > content).
+Never select on a single shared word.
 """
 
 import re
@@ -9,8 +10,18 @@ from typing import List, Dict, Any, Optional, Tuple
 # Minimum score to return an article; below this we escalate
 MIN_SCORE_THRESHOLD = 5.0
 
+# Phase 3: Never select based on single keyword match
+MIN_KEYWORD_MATCHES = 2
+
 # Score gap: if top two articles are within this, use intent to disambiguate
 CLOSE_SCORE_GAP = 2.0
+
+# Weighted scoring (Phase 3)
+WEIGHT_TITLE = 4.0
+WEIGHT_TAGS = 3.0
+WEIGHT_CATEGORY = 2.0
+WEIGHT_CONTENT = 1.0
+WEIGHT_SUMMARY = 1.5
 
 # Stop words (normalized lowercase)
 STOP_WORDS = frozenset({
@@ -131,19 +142,14 @@ def score_article(
     article: Dict[str, Any],
     keywords: List[str],
     intent: str,
-) -> float:
+) -> Tuple[float, int]:
     """
-    Relevance scoring (Steps 1–2):
-    - +3 exact phrase match in title
-    - +2 per keyword in title
-    - +2 category match (any keyword)
-    - +1 per keyword in content
-    - +3 multi-keyword bonus (2+ keywords match)
-    - Intent boost: +4 if article matches user intent
-    - Intent penalty: -5 if article contradicts intent (e.g. password article when intent=email_setup)
+    Phase 3: Weighted relevance scoring.
+    Title (highest), tags (high), category (medium), content (lower).
+    Returns (score, distinct_keyword_matches). Never select on single shared word.
     """
     if not keywords:
-        return 0.0
+        return (0.0, 0)
 
     title = _field_text(article, "title")
     category = _field_text(article, "category")
@@ -152,61 +158,42 @@ def score_article(
     summary = _field_text(article, "summary")
 
     score = 0.0
-    title_matches = 0
-    content_matches = 0
-    phrase = " ".join(keywords)
+    matched_keywords: set = set()
 
-    # Exact phrase in title: +3
+    for kw in keywords:
+        if _word_match(title, kw):
+            score += WEIGHT_TITLE
+            matched_keywords.add(kw)
+        if tags_text and _word_match(tags_text, kw):
+            score += WEIGHT_TAGS
+            matched_keywords.add(kw)
+        if category and _word_match(category, kw):
+            score += WEIGHT_CATEGORY
+            matched_keywords.add(kw)
+        if _word_match(content, kw):
+            score += WEIGHT_CONTENT
+            matched_keywords.add(kw)
+        if summary and _word_match(summary, kw):
+            score += WEIGHT_SUMMARY
+            matched_keywords.add(kw)
+
+    # Exact phrase in title: bonus
+    phrase = " ".join(keywords)
     if phrase in title:
         score += 3.0
 
-    # Per keyword in title: +2 (whole-word match: avoid 'set' matching 'reset')
-    for kw in keywords:
-        if _word_match(title, kw):
-            score += 2.0
-            title_matches += 1
-
-    # Category match: +2 (once)
-    for kw in keywords:
-        if category and _word_match(category, kw):
-            score += 2.0
-            break
-
-    # Per keyword in content: +1
-    for kw in keywords:
-        if _word_match(content, kw):
-            score += 1.0
-            content_matches += 1
-
-    # Tags/summary: +1 each if present
-    for kw in keywords:
-        if tags_text and _word_match(tags_text, kw):
-            score += 1.0
-            break
-    for kw in keywords:
-        if summary and _word_match(summary, kw):
-            score += 1.0
-            break
-
-    # Multi-keyword bonus: +3 if 2+ keywords match
-    total_matches = title_matches + content_matches
-    if total_matches >= 2:
-        score += 3.0
-
-    # Intent alignment: strong penalty for wrong topic
+    # Intent alignment (legacy): boost/penalty
     hints = _article_intent_hints(article)
     if intent != "unclear":
         if intent in hints:
             score += 4.0
         else:
-            # Contradiction: user wants email setup, article is password reset (or vice versa)
-            # Strong penalty so "Reset Password" never wins for "set up company email"
             if intent == "email_setup" and "password_reset" in hints and "email_setup" not in hints:
                 score -= 10.0
             elif intent == "password_reset" and "email_setup" in hints and "password_reset" not in hints:
                 score -= 10.0
 
-    return max(0.0, score)
+    return (max(0.0, score), len(matched_keywords))
 
 
 def select_best_article(
@@ -229,26 +216,36 @@ def select_best_article(
         aid = art.get("id")
         if aid and aid in exclude:
             continue
-        s = score_article(art, keywords, intent)
-        scored.append((art, s))
+        s, match_count = score_article(art, keywords, intent)
+        scored.append((art, s, match_count))
 
     if not scored:
         debug = {"intent": intent, "keywords": keywords, "scores": []}
         return (None, 0.0, debug)
 
     scored.sort(key=lambda x: -x[1])
-    best_article, best_score = scored[0]
+    best_article, best_score, best_matches = scored[0]
     second_score = scored[1][1] if len(scored) > 1 else 0.0
 
     debug = {
         "intent": intent,
         "keywords": keywords,
-        "scores": [(a.get("title"), s) for a, s in scored[:5]],
+        "scores": [(a.get("title"), s) for a, s, _ in scored[:5]],
         "best_title": best_article.get("title"),
         "best_score": best_score,
+        "best_keyword_matches": best_matches,
         "second_score": second_score,
         "close_call": (best_score - second_score) <= CLOSE_SCORE_GAP if len(scored) > 1 else False,
     }
+
+    # Phase 3: Never select on single shared word
+    if best_matches < MIN_KEYWORD_MATCHES:
+        debug["escalation_reason"] = "single_word_match"
+        return (None, best_score, debug)
+
+    if best_score < MIN_SCORE_THRESHOLD:
+        debug["escalation_reason"] = "below_threshold"
+        return (None, best_score, debug)
 
     # If scores are close and intent is unclear, escalate (don't guess)
     if len(scored) > 1 and (best_score - second_score) <= CLOSE_SCORE_GAP and intent == "unclear":

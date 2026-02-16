@@ -22,7 +22,8 @@ class KnowledgeBaseArticle(BaseModel):
     title: str
     content: str
     category: Optional[str] = None
-    type: Optional[str] = None  # "static" | "guided"
+    type: Optional[str] = None  # "static" | "guided" (legacy)
+    article_type: Optional[str] = None  # "flow" | "guide" | "single_action" | "reference"
     trigger_phrases: Optional[List[str]] = None
     flow: Optional[List[Dict[str, Any]]] = None
     guided_flow: Optional[bool] = False
@@ -65,6 +66,8 @@ async def create_article(
         }
         if getattr(article, "type", None):
             article_data["type"] = article.type
+        if getattr(article, "article_type", None):
+            article_data["article_type"] = article.article_type
         if getattr(article, "trigger_phrases", None) is not None:
             article_data["trigger_phrases"] = article.trigger_phrases
         if getattr(article, "flow", None) is not None:
@@ -112,6 +115,7 @@ async def get_articles(current_user: dict = Depends(require_admin_or_above)):
                 "guided_branches": article_data.get("guided_branches"),
                 "branches": article_data.get("branches"),
                 "type": article_data.get("type"),
+                "article_type": article_data.get("article_type"),
                 "trigger_phrases": article_data.get("trigger_phrases"),
                 "flow": article_data.get("flow"),
             })
@@ -158,6 +162,8 @@ async def update_article(
             updates["branches"] = article.branches
         if hasattr(article, "type") and article.type is not None:
             updates["type"] = article.type
+        if hasattr(article, "article_type") and article.article_type is not None:
+            updates["article_type"] = article.article_type
         if hasattr(article, "trigger_phrases") and article.trigger_phrases is not None:
             updates["trigger_phrases"] = article.trigger_phrases
         if hasattr(article, "flow") and article.flow is not None:

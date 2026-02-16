@@ -11,6 +11,9 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 # Admin Access Code - Required for admin role assignment during registration
 ADMIN_ACCESS_CODE = os.getenv("ADMIN_ACCESS_CODE", "")
 
+# Firebase Web API Key - used by backend only for Auth REST API (signIn/signUp)
+FIREBASE_WEB_API_KEY = os.getenv("FIREBASE_WEB_API_KEY", "")
+
 # Public config for frontend (no secrets) - used by GET /api/config
 API_BASE_URL = os.getenv("API_BASE_URL", "").rstrip("/")
 FIREBASE_PUBLIC_API_KEY = os.getenv("FIREBASE_PUBLIC_API_KEY", "")

@@ -32,14 +32,10 @@ async def verify_token(authorization: Optional[str] = Header(None)) -> dict:
         )
     
     try:
-        # Verify the token
         decoded_token = firebase_auth.verify_id_token(token)
         return decoded_token
-    except Exception as e:
-        raise HTTPException(
-            status_code=401,
-            detail=f"Invalid token: {str(e)}"
-        )
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
 
 
 async def verify_admin(decoded_token: dict = Depends(verify_token)) -> dict:

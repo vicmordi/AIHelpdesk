@@ -12,16 +12,20 @@ An MVP AI-powered helpdesk application with automatic ticket resolution using Op
 
 ## Configuration
 
-- **Backend:** Set environment variables as in `ENV_TEMPLATE.md`. Never commit `.env`.
-- **Frontend:** App reads `window.__APP_CONFIG__` from `public/config.js`. For production, generate `config.js` from env (apiBaseUrl + Firebase client config only; no API secrets).
+- **Backend:** Set environment variables as in `ENV_TEMPLATE.md` (include `FIREBASE_WEB_API_KEY` for login/register). Never commit `.env`.
+- **Frontend:** App reads `window.__APP_CONFIG__` from `public/config.js` (only `apiBaseUrl`). No Firebase config in the frontend.
+
+## Architecture
+
+- **Browser → FastAPI → Firebase Admin SDK.** Frontend has no Firebase client SDK; all auth and data go through the backend.
+- Login and register use `POST /auth/login` and `POST /auth/register`; the backend calls Firebase Auth REST API and returns an ID token. The frontend stores the token and sends it as `Authorization: Bearer` on each request.
+- Backend verifies tokens with Firebase Admin and uses Firestore for user roles and ticket data.
 
 ## Development Notes
 
-- The application uses Firebase Admin SDK for backend operations
-- Frontend uses Firebase Auth SDK for user authentication
-- All API requests require a Bearer token (Firebase ID token)
-- Frontend talks only to the backend API; OpenAI and privileged operations are backend-only
-- The AI prompt is designed to prevent hallucination and force JSON output
+- Firebase Admin SDK is used for token verification and Firestore only on the backend
+- All API requests require a Bearer token (obtained via backend login/register)
+- OpenAI and all privileged operations are backend-only
 - Confidence threshold is set to 0.7 for auto-resolution
 
 ## License

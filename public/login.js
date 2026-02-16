@@ -1,60 +1,72 @@
 /**
- * Login Page JavaScript
+ * Login — backend POST /auth/login, store token, redirect by role.
  */
-import { auth, API_BASE_URL } from "./firebase-config.js";
-import { signInWithEmailAndPassword, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
+import { getApiBaseUrl, setToken, getToken } from "./api.js";
 
-function getErrorMessage(errorCode) {
-    const errorMessages = {
-        "auth/user-not-found": "No account found with this email.",
-        "auth/wrong-password": "Incorrect password.",
-        "auth/email-already-in-use": "This email is already registered.",
-        "auth/weak-password": "Password should be at least 6 characters.",
-        "auth/invalid-email": "Invalid email address.",
-        "auth/network-request-failed": "Network error. Please check your connection."
-    };
-    return errorMessages[errorCode] || `Error: ${errorCode || "Unknown error"}`;
+function getErrorMessage(detail) {
+  const map = {
+    "Invalid email or password": "Invalid email or password.",
+    "Invalid email or password.": "Invalid email or password.",
+    "EMAIL_NOT_FOUND": "No account found with this email.",
+    "INVALID_PASSWORD": "Incorrect password.",
+  };
+  return map[detail] || detail || "Login failed.";
 }
 
-async function checkUserRoleAndRedirect(user) {
-    try {
-        const token = await user.getIdToken();
-        const response = await fetch(`${API_BASE_URL}/auth/me`, {
-            headers: { "Authorization": `Bearer ${token}` }
-        });
-        if (response.ok) {
-            const userData = await response.json();
-            if (userData.role === "admin") {
-                window.location.href = "admin.html";
-            } else {
-                window.location.href = "submit-ticket.html";
-            }
-        }
-    } catch (error) {
-        console.error("Error checking user role:", error);
+async function checkTokenAndRedirect() {
+  const token = getToken();
+  if (!token) return;
+  try {
+    const res = await fetch(`${getApiBaseUrl()}/auth/me`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) return;
+    const userData = await res.json();
+    if (userData.role === "admin") {
+      window.location.href = "admin.html";
+    } else {
+      window.location.href = "submit-ticket.html";
     }
+  } catch (_) {}
 }
 
-onAuthStateChanged(auth, (user) => {
-    if (user) {
-        checkUserRoleAndRedirect(user);
-    }
-});
+checkTokenAndRedirect();
 
 document.getElementById("login-form").addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const email = document.getElementById("email").value;
-    const password = document.getElementById("password").value;
-    const errorMessage = document.getElementById("error-message");
-    const successMessage = document.getElementById("success-message");
-    errorMessage.style.display = "none";
-    successMessage.style.display = "none";
+  e.preventDefault();
+  const email = document.getElementById("email").value;
+  const password = document.getElementById("password").value;
+  const errorMessage = document.getElementById("error-message");
+  const successMessage = document.getElementById("success-message");
+  errorMessage.style.display = "none";
+  successMessage.style.display = "none";
 
-    try {
-        const userCredential = await signInWithEmailAndPassword(auth, email, password);
-        await checkUserRoleAndRedirect(userCredential.user);
-    } catch (error) {
-        errorMessage.textContent = getErrorMessage(error.code);
-        errorMessage.style.display = "flex";
+  try {
+    const res = await fetch(`${getApiBaseUrl()}/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      errorMessage.textContent = getErrorMessage(data.detail);
+      errorMessage.style.display = "flex";
+      return;
     }
+    setToken(data.token);
+    const meRes = await fetch(`${getApiBaseUrl()}/auth/me`, {
+      headers: { Authorization: `Bearer ${data.token}` },
+    });
+    if (meRes.ok) {
+      const userData = await meRes.json();
+      if (userData.role === "admin") {
+        window.location.href = "admin.html";
+        return;
+      }
+    }
+    window.location.href = "submit-ticket.html";
+  } catch (err) {
+    errorMessage.textContent = err.message || "Login failed.";
+    errorMessage.style.display = "flex";
+  }
 });

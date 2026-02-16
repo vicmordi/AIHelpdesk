@@ -1,0 +1,35 @@
+name: Deploy to Firebase Hosting
+
+on:
+  push:
+    branches:
+      - main
+      - dev
+
+jobs:
+  build_and_deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      # Deploy to LIVE when pushing to main branch
+      - name: Deploy to Live Channel
+        if: github.ref == 'refs/heads/main'
+        uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_AIHELPDESK_21060 }}
+          channelId: live
+          projectId: aihelpdesk-21060
+
+      # Deploy to PREVIEW channel when pushing to dev branch
+      - name: Deploy to Dev Preview Channel
+        if: github.ref == 'refs/heads/dev'
+        uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_AIHELPDESK_21060 }}
+          channelId: dev
+          projectId: aihelpdesk-21060

@@ -1,52 +1,36 @@
 /**
- * Submit Ticket Page JavaScript
+ * Submit Ticket Page JavaScript — backend API only, no Firebase client SDK.
  */
-import { auth, apiRequest } from "./firebase-config.js";
-import { onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
+import { apiRequest, clearToken, isAuthenticated } from "./api.js";
 
 let currentUser = null;
 
-// Check authentication
-onAuthStateChanged(auth, async (user) => {
-    if (!user) {
-        window.location.href = 'login.html';
+// Check authentication (token-based)
+(async function initAuth() {
+    if (!isAuthenticated()) {
+        window.location.href = "login.html";
         return;
     }
-    
-    currentUser = user;
-    
     try {
-        // Get user info
-        const userData = await apiRequest('/auth/me');
-        
-        // Redirect admins to admin dashboard (employees stay on this page)
-        if (userData.role === 'admin') {
-            window.location.href = 'admin.html';
+        const userData = await apiRequest("/auth/me");
+        if (userData.role === "admin") {
+            window.location.href = "admin.html";
             return;
         }
-        
-        // Display user email and avatar
-        const userEmail = userData.email;
-        document.getElementById('user-email').textContent = userEmail;
-        const avatar = document.getElementById('user-avatar');
-        avatar.textContent = userEmail.charAt(0).toUpperCase();
-        
-        // Load user's tickets (dashboard loads by default)
+        currentUser = userData;
+        document.getElementById("user-email").textContent = userData.email || "";
+        const avatar = document.getElementById("user-avatar");
+        if (avatar) avatar.textContent = (userData.email || "U").charAt(0).toUpperCase();
         loadMyTickets();
-        
-        // Set default tab to "my-tickets"
-        document.querySelector('[data-tab="my-tickets"]').click();
-        
-        // Setup messages icon click handler
-        document.getElementById('messages-icon-btn')?.addEventListener('click', () => {
-            openMessagesModal();
-        });
-        
-    } catch (error) {
-        console.error('Error loading user data:', error);
-        showError('Failed to load user data');
+        document.querySelector('[data-tab="my-tickets"]')?.click();
+        document.getElementById("messages-icon-btn")?.addEventListener("click", () => openMessagesModal());
+    } catch (err) {
+        console.error("Error loading user data:", err);
+        showError("Failed to load user data");
+        clearToken();
+        window.location.href = "login.html";
     }
-});
+})();
 
 /**
  * Close a modal overlay by removing .active. Used by body delegation for .modal-close-btn and overlay backdrop.
@@ -130,16 +114,11 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // Logout handler
-    const logoutBtn = document.getElementById('logout-btn');
+    const logoutBtn = document.getElementById("logout-btn");
     if (logoutBtn) {
-        logoutBtn.addEventListener('click', async () => {
-            try {
-                await signOut(auth);
-                window.location.href = 'index.html';
-            } catch (error) {
-                console.error('Logout error:', error);
-                showError('Failed to logout');
-            }
+        logoutBtn.addEventListener("click", () => {
+            clearToken();
+            window.location.href = "login.html";
         });
     }
     

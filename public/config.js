@@ -1,17 +1,16 @@
 /**
- * App config — set before loading firebase-config.js
- * These are public/client values only (no API secrets).
- * Override at deploy time by generating this file from environment variables.
+ * App config — set before loading api.js
+ * Environment-aware: DEV backend on Firebase preview channel, PROD otherwise.
  */
+const hostname = window.location.hostname;
+const isDev =
+  hostname.includes("--dev") ||
+  (hostname.includes("firebaseapp.com") && hostname.includes("dev"));
+
+const API_BASE_URL = isDev
+  ? "https://aihelpdesk-dev.onrender.com"
+  : "https://aihelpdesk-2ycg.onrender.com";
+
 window.__APP_CONFIG__ = {
-  apiBaseUrl: "https://aihelpdesk-2ycg.onrender.com",
-  firebase: {
-    apiKey: "AIzaSyDf27ycSvzefI94EQwXqQ7FIMekT4JiOGA",
-    authDomain: "aihelpdesk-21060.firebaseapp.com",
-    projectId: "aihelpdesk-21060",
-    storageBucket: "aihelpdesk-21060.firebasestorage.app",
-    messagingSenderId: "966712569424",
-    appId: "1:966712569424:web:f907a4b894c197db336b55",
-    measurementId: "G-XJ1D6W1ZNQ"
-  }
+  apiBaseUrl: API_BASE_URL
 };

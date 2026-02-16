@@ -1,52 +1,38 @@
 /**
- * Admin Dashboard JavaScript
+ * Admin Dashboard JavaScript — backend API only, no Firebase client SDK.
  */
-import { auth, apiRequest } from "./firebase-config.js";
-import { onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
+import { apiRequest, clearToken, isAuthenticated } from "./api.js";
 
 let currentUser = null;
 
-// Check authentication
-onAuthStateChanged(auth, async (user) => {
-    if (!user) {
-        window.location.href = 'login.html';
+// Check authentication (token-based)
+(async function initAuth() {
+    if (!isAuthenticated()) {
+        window.location.href = "login.html";
         return;
     }
-    
-    currentUser = user;
-    
     try {
-        // Get user info
-        const userData = await apiRequest('/auth/me');
-        
-        // Check if user is admin (employees should not access admin dashboard)
-        if (userData.role !== 'admin') {
-            alert('Access denied. Administrator privileges required. Your role: ' + (userData.role || 'employee'));
-            window.location.href = 'submit-ticket.html';
+        const userData = await apiRequest("/auth/me");
+        if (userData.role !== "admin") {
+            alert("Access denied. Administrator privileges required. Your role: " + (userData.role || "employee"));
+            window.location.href = "submit-ticket.html";
             return;
         }
-        
-        // Display user email and avatar
-        const userEmail = userData.email;
-        document.getElementById('user-email').textContent = userEmail;
-        const avatar = document.getElementById('user-avatar');
-        avatar.textContent = userEmail.charAt(0).toUpperCase();
-        
-        // Load initial data
+        currentUser = userData;
+        document.getElementById("user-email").textContent = userData.email || "";
+        const avatar = document.getElementById("user-avatar");
+        if (avatar) avatar.textContent = (userData.email || "A").charAt(0).toUpperCase();
         loadKnowledgeBase();
         loadAllTickets();
         loadEscalatedTickets();
-        
-        // Setup messages icon click handler
-        document.getElementById('messages-icon-btn')?.addEventListener('click', () => {
-            openMessagesModal();
-        });
-        
-    } catch (error) {
-        console.error('Error loading user data:', error);
-        showError('Failed to load user data');
+        document.getElementById("messages-icon-btn")?.addEventListener("click", () => openMessagesModal());
+    } catch (err) {
+        console.error("Error loading user data:", err);
+        showError("Failed to load user data");
+        clearToken();
+        window.location.href = "login.html";
     }
-});
+})();
 
 // Wait for DOM to be ready
 document.addEventListener('DOMContentLoaded', () => {
@@ -157,16 +143,11 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     
     // Logout handler
-    const logoutBtn = document.getElementById('logout-btn');
+    const logoutBtn = document.getElementById("logout-btn");
     if (logoutBtn) {
-        logoutBtn.addEventListener('click', async () => {
-            try {
-                await signOut(auth);
-                window.location.href = 'index.html';
-            } catch (error) {
-                console.error('Logout error:', error);
-                showError('Failed to logout');
-            }
+        logoutBtn.addEventListener("click", () => {
+            clearToken();
+            window.location.href = "login.html";
         });
     }
     

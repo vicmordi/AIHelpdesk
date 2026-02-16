@@ -414,11 +414,13 @@ def flow_advance(
                 choice = (options[idx - 1].get("value") or options[idx - 1].get("label") or "").lower()
         if choice:
             context["device_type"] = choice
-            if platform_steps and steps := platform_steps.get(choice, []):
-                context["platform_step_index"] = 1
-                inst = steps[0]
-                reply = _format_platform_step(1, len(steps), inst, choice, article_title, is_first=True)
-                return ({"step_id": "platform_step_1", "message": inst}, reply, context)
+            if platform_steps:
+                steps = platform_steps.get(choice, [])
+                if steps:
+                    context["platform_step_index"] = 1
+                    inst = steps[0]
+                    reply = _format_platform_step(1, len(steps), inst, choice, article_title, is_first=True)
+                    return ({"step_id": "platform_step_1", "message": inst}, reply, context)
             return (None, "That is all I have. Let me know if that works for you or if you want me to escalate your problem to support.", context)
         return (current_step, "I didn't catch that. Please choose one of the options (e.g. iPhone or Android).", context)
 

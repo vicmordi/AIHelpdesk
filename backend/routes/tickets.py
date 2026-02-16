@@ -1212,6 +1212,32 @@ async def add_message_to_ticket(
                 print("ESCALATED: ai_mode=ai_free")
                 return {"message": "Message added successfully", "ticket_id": ticket_id, "new_message": new_message, "ai_reply": {"sender": "ai", "message": escalation_msg, "createdAt": now_iso}}
 
+            # Flow completed: only resolution or escalation — do NOT restart steps
+            flow_done = completed or context.get("flow_completed")
+            if flow_done:
+                msg_lower = user_msg.strip().lower()
+                if msg_lower in ("yes", "y", "yeah", "sure", "all good", "it works", "working"):
+                    ai_reply = "Awesome! Glad we got that sorted. If you need anything else, I'm here."
+                    messages.append({"sender": "ai", "message": humanize_reply(ai_reply), "createdAt": now_iso, "isRead": False})
+                    ticket_ref.update({
+                        "messages": messages,
+                        "resolved": True,
+                        "status": "resolved",
+                        "completed": True,
+                        "troubleshooting_context": {**context, "flow_completed": True},
+                        "last_activity_timestamp": now_iso,
+                    })
+                    return {"message": "Message added successfully", "ticket_id": ticket_id, "new_message": new_message, "ai_reply": {"sender": "ai", "message": ai_reply, "createdAt": now_iso}, "resolved": True}
+                completion_prompt = get_completion_reply()
+                messages.append({"sender": "ai", "message": humanize_reply(completion_prompt), "createdAt": now_iso, "isRead": False})
+                ticket_ref.update({
+                    "messages": messages,
+                    "troubleshooting_context": {**context, "flow_completed": True},
+                    "last_activity_timestamp": now_iso,
+                    "completed": True,
+                })
+                return {"message": "Message added successfully", "ticket_id": ticket_id, "new_message": new_message, "ai_reply": {"sender": "ai", "message": completion_prompt, "createdAt": now_iso}}
+
             flow_id = ticket_data.get("flow_id") or ticket_data.get("guided_article_id")
             art_doc = db.collection("knowledge_base").document(flow_id).get() if flow_id else None
             article_raw = {"id": art_doc.id, **art_doc.to_dict()} if art_doc and art_doc.exists else None

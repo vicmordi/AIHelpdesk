@@ -10,24 +10,30 @@ from typing import List, Dict, Any, Optional, Tuple
 # --- Phase 1: Universal article classification ---
 ARTICLE_TYPES = ("flow", "guide", "single_action", "reference")
 
-# --- Response variation pools (Phase 6: human-like rotation) ---
-ADVANCE_VARIATIONS = (
-    "Nice, we're making progress.",
-    "Good, let's move to the next step.",
-    "Alright, here's what to do next.",
-    "Great job, almost there.",
-    "Perfect! 👍",
+# --- Response variation pools: different phrases for different situations ---
+ADVANCE_MIDDLE = (
+    "Nice.",
     "Got it.",
+    "Alright, next:",
+    "Next step:",
+    "Moving on:",
+    "Here’s the next one:",
+)
+ADVANCE_LAST_STEP = (
+    "Last step:",
+    "Final step:",
+    "One more:",
+    "Almost there:",
+)
+COMPLETION_VARIATIONS = (
+    "That's all I have. Can you confirm if everything is working, or do you want me to escalate to support?",
+    "That is all. Is everything working, or should I escalate this to a support engineer?",
+    "We've gone through all the steps. Let me know if it's working, or if you'd like me to escalate to support.",
 )
 CLARIFICATION_VARIATIONS = (
     "I didn't catch that. Please choose one of the options above.",
     "Could you pick one of the options?",
     "Which option applies to you?",
-)
-COMPLETION_VARIATIONS = (
-    "You're all set. This should resolve the issue.\n\nIf you're still experiencing problems, I can escalate this to a support engineer.",
-    "That's everything on my side. If it's still not working, I can escalate this to a support engineer.",
-    "You're all set. If you're still having issues, I can escalate this to a support specialist.",
 )
 ESCALATION_VARIATIONS = (
     "I'm going to escalate this to a support specialist for further assistance.",
@@ -60,7 +66,8 @@ RESOLUTION_PHRASES = (
     "it's working", "it is working", "its working",
     "resolved", "fixed", "thank you", "thanks", "that worked",
     "all good", "all set", "got it", "working now", "solved",
-    "yes it did", "that did it", "perfect", "fixed", "that worked",
+    "yes it did", "that did it", "perfect", "yes it works",
+    "it works", "working",
 )
 ESCALATION_PHRASES = (
     "still broken", "still not working", "doesn't work", "didn't work",
@@ -485,19 +492,21 @@ def is_confirmation_message(message: str) -> bool:
 
 
 def flow_get_first_message(flow: List[Dict], article_title: str = "") -> str:
-    """Return first step only. Never dump full article. Human-like opener."""
+    """Return first step only. Never dump full article. Varied opener."""
     if not flow:
         return "I can help with that. What would you like to do?"
     first = flow[0]
     msg = first.get("message", "Let's get started.")
     options = first.get("options") or []
     topic = (article_title or "this").lower()
+    openers = ("Great,", "Alright,", "Sure,", "Okay,")
+    opener = _pick(openers)
     if options and "device" in (first.get("step_id") or "").lower():
-        msg = f"Great — I'll guide you through {topic}. It'll only take a few minutes.\n\nWhat device are you using?\n\n" + "\n".join(
+        msg = f"{opener} I'll guide you through {topic}. It'll only take a few minutes.\n\nWhat device are you using?\n\n" + "\n".join(
             f"{i+1}️⃣ {opt.get('label', opt.get('value', '')).replace('-', ' ').title()}" for i, opt in enumerate(options[:5])
         )
     elif not options and first.get("step_id") and "device" not in (first.get("step_id") or "").lower():
-        msg = f"Great, I'll guide you through {topic}.\n\n**Step 1:**\n{msg}\n\nLet me know when you're there."
+        msg = f"{opener} I'll guide you through {topic}.\n\n**Step 1:**\n{msg}\n\nLet me know when you're there."
     return msg
 
 
@@ -515,23 +524,26 @@ def _format_platform_step(
     step_index: int, total_steps: int, instruction: str,
     device: str, article_title: str, is_first: bool,
 ) -> str:
-    """Human-like step message for platform-specific flow (with variation)."""
-    advance = _pick(ADVANCE_VARIATIONS)
+    """Human-like step message. Different phrases for first, middle, last step."""
     device_label = (device or "").replace("_", " ").title()
-    topic = article_title or "this"
+    topic = (article_title or "this").lower()
     if is_first and step_index == 1:
+        openers = ("Great,", "Alright,", "Sure,", "Okay,")
+        opener = _pick(openers)
         return (
-            f"{advance} I'll guide you through {topic} on your {device_label}.\n\n"
-            f"**First step:**\n{instruction}\n\n"
+            f"{opener} I'll guide you through {topic} on your {device_label}.\n\n"
+            f"**Step 1:**\n{instruction}\n\n"
             "Let me know when you're there."
         )
     if step_index < total_steps:
+        advance = _pick(ADVANCE_MIDDLE)
         return (
             f"{advance}\n\n**Step {step_index}:**\n{instruction}\n\n"
             "Let me know when you've done that."
         )
+    advance = _pick(ADVANCE_LAST_STEP)
     return (
-        f"Almost there! 🎯\n\n**Step {step_index}:**\n{instruction}\n\n"
+        f"{advance}\n\n**Step {step_index}:**\n{instruction}\n\n"
         "Let me know when you've completed this step."
     )
 
@@ -611,13 +623,17 @@ def flow_advance(
             return ({"step_id": f"platform_step_{step_index}", "message": inst}, reply, context)
 
     def _humanize_step(step_dict: Dict, step_idx: int, total: int) -> str:
-        """Human-like step message for non-platform flows."""
+        """Human-like step message for non-platform flows. Different phrases per position."""
         raw = step_dict.get("message", "Let me know when you're done.")
         if step_idx == 1 and total >= 1:
-            return f"I'll guide you through {article_title or 'this'}. It'll only take a few minutes.\n\n**First step:**\n{raw}\n\nLet me know when you're there."
+            openers = ("Great,", "Alright,", "Sure,")
+            o = _pick(openers)
+            return f"{o} I'll guide you through {article_title or 'this'}.\n\n**Step 1:**\n{raw}\n\nLet me know when you're there."
         if step_idx < total:
-            return f"Perfect! 👍\n\n**Step {step_idx}:**\n{raw}\n\nLet me know when you've done that."
-        return f"Almost there! 🎯\n\n**Step {step_idx}:**\n{raw}\n\nLet me know when you've completed this step."
+            advance = _pick(ADVANCE_MIDDLE)
+            return f"{advance}\n\n**Step {step_idx}:**\n{raw}\n\nLet me know when you've done that."
+        advance = _pick(ADVANCE_LAST_STEP)
+        return f"{advance}\n\n**Step {step_idx}:**\n{raw}\n\nLet me know when you've completed this step."
 
     instruction_steps = [s for s in flow if (s.get("step_id") or "").startswith("step_")]
     total_instruction_steps = len(instruction_steps)

@@ -49,12 +49,12 @@ def humanize_reply(text: str) -> str:
 
 
 # Strict KB-only prompt: OpenAI may ONLY use the provided article (Step 2)
-KB_ONLY_SYSTEM = """You are an internal IT helpdesk assistant.
-You may ONLY answer using the provided knowledge base article.
-You are strictly forbidden from using external knowledge.
+KB_ONLY_SYSTEM = """You are a friendly, professional IT helpdesk agent. You speak naturally and supportively.
+You may ONLY answer using the provided knowledge base article. You are strictly forbidden from using external knowledge.
 If the article does not clearly contain the solution, respond exactly:
 "I could not find a complete solution in your organization's knowledge base. I will escalate this ticket."
-Do not improvise or generate general IT advice. Use only the article text."""
+Do not improvise or generate general IT advice. Use only the article text.
+Tone: conversational, helpful, human-like—like a real support agent. Start with a brief intro such as "I'll guide you through..." or "Let me help you with...". Be clear and supportive. Do not sound robotic."""
 
 # User rejection phrases: trigger re-search with previous article excluded (Step 3)
 DISSATISFACTION_PHRASES = (
@@ -85,7 +85,7 @@ async def _answer_from_single_article(question: str, article: dict) -> dict:
 Knowledge base article (ONLY use this):
 {single_article_text}
 
-Respond to the user using ONLY the article above. If the article does not clearly answer the question, respond exactly: "I could not find a complete solution in your organization's knowledge base. I will escalate this ticket." """
+Respond in a friendly, human-like way—like a real helpdesk agent. Start with a brief intro such as "I'll guide you through {title}." or "Let me help you with that." Then provide the steps or instructions from the article in a clear, conversational way. Use ONLY the article above. If the article does not clearly answer the question, respond exactly: "I could not find a complete solution in your organization's knowledge base. I will escalate this ticket." """
 
     try:
         response = openai_client.chat.completions.create(
@@ -234,8 +234,10 @@ def _try_guided_mode(user_message: str, kb_articles_full: List[dict]) -> dict:
             label = key.replace("_", " ").title()
             emoji = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣"][i] if i < 5 else f"{i + 1}."
             option_lines.append(f"{emoji} {label}")
+        article_title = (art_full.get("title") or "").strip()
+        topic = article_title.lower() if article_title else "this"
         clarifying_question = (
-            "Alright — I'll walk you through this. It'll only take a few minutes.\n\n"
+            f"Alright — I'll guide you through {topic}. It'll only take a few minutes.\n\n"
             "What device are you using?\n\n"
             + "\n".join(option_lines)
         )
@@ -451,7 +453,10 @@ async def create_ticket(
             # Part 1 & 2: Match by trigger_phrases (converted or structured guided) — guided overrides article dump
             matched = match_flow_by_trigger(ticket.message, kb_articles_full)
             if matched and matched.get("type") == "guided":
-                first_msg = flow_get_first_message(matched.get("flow") or [])
+                first_msg = flow_get_first_message(
+                    matched.get("flow") or [],
+                    article_title=matched.get("title", ""),
+                )
                 first_msg = humanize_reply(first_msg)
                 print("FLOW MATCHED:", matched.get("title"))  # Part 8 debug
                 messages.append({"sender": "ai", "message": first_msg, "createdAt": now_iso, "isRead": False})
@@ -1235,8 +1240,14 @@ async def add_message_to_ticket(
             if normalized and normalized.get("flow") and not normalized.get("_legacy_branches"):
                 flow = normalized.get("flow") or []
                 current_step_id = ticket_data.get("current_step") or (flow[0].get("step_id") if flow else "step_1")
-                next_step, reply_msg, new_context = flow_advance(flow, current_step_id, context, user_msg)
-                if next_step is None and "Did this resolve" in (reply_msg or ""):
+                platform_steps = normalized.get("_platform_steps") or {}
+                article_title = normalized.get("title") or article_raw.get("title") or ""
+                next_step, reply_msg, new_context = flow_advance(
+                    flow, current_step_id, context, user_msg,
+                    platform_steps=platform_steps,
+                    article_title=article_title,
+                )
+                if next_step is None and ("That is all" in (reply_msg or "") or "Did this resolve" in (reply_msg or "")):
                     completed = True
                 if reply_msg and ("I didn't catch" in reply_msg or "Please choose" in reply_msg):
                     confusion = confusion + 1

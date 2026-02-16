@@ -25,7 +25,10 @@ RESOLUTION_PHRASES = (
 
 # --- Escalation triggers (Part 6) ---
 ESCALATION_PHRASES = ("still broken", "still not working", "doesn't work", "didn't work", "no luck", "not working", "escalate", "speak to someone", "human")
-CONFIRMATION_KEYWORDS = ("done", "completed", "yes", "finished", "ok", "ready", "did it", "completed it", "i'm there", "im there", "i am there")
+CONFIRMATION_KEYWORDS = (
+    "done", "completed", "yes", "finished", "ok", "ready", "did it", "completed it",
+    "i'm there", "im there", "i am there", "ive gone", "i've gone", "got it", "did that",
+)
 
 
 def convert_legacy_content_to_flow(title: str, content: str, category: str = "") -> Dict[str, Any]:
@@ -39,37 +42,30 @@ def convert_legacy_content_to_flow(title: str, content: str, category: str = "")
     content_lower = (content or "").lower()
     title_lower = (title or "").lower()
 
-    # Detect platform sections
+    # Device sections: only actual devices (iPhone, Android, etc.)—not environments like "internal" or "vpn"
+    DEVICE_PLATFORMS = ("iphone", "android", "windows", "mac")
     platform_headers = []
-    for p in ("iphone", "android", "windows", "mac", "vpn", "on-site", "off-site", "internal", "external"):
+    for p in DEVICE_PLATFORMS:
         if p in content_lower or p in title_lower:
             platform_headers.append(p)
 
     flow = []
+    platform_steps: Dict[str, List[str]] = {}
     if platform_headers and _has_multiple_platform_sections(content, platform_headers):
-        # Build branching: first step is "which device?", then branch by choice
-        options = [{"value": p, "label": p.replace("-", " ").title()} for p in platform_headers[:5]]
+        # Parse steps per platform - NEVER mix iPhone and Android
+        platform_steps = _parse_content_by_platform(content, platform_headers)
+        if not platform_steps:
+            platform_steps = {p.lower(): _parse_numbered_steps(content) for p in platform_headers[:5]}
+        # Build branching: "What device are you using?" + iPhone / Android options
+        options = [{"value": p.lower(), "label": p.replace("-", " ").title()} for p in platform_headers[:5]]
         flow.append({
             "step_id": "device",
-            "message": "What device or environment are you using?",
+            "message": "What device are you using?",
             "options": options,
             "save_as": "device_type",
             "condition": "",
             "next": "step_1",
         })
-        # Parse steps per platform (simplified: one branch per platform with shared step pattern)
-        steps = _parse_numbered_steps(content)
-        for i, step_text in enumerate(steps):
-            flow.append({
-                "step_id": f"step_{i + 1}",
-                "message": step_text,
-                "options": [],
-                "save_as": "",
-                "condition": "",
-                "next": f"step_{i + 2}" if i + 2 <= len(steps) else "end",
-            })
-        if flow and flow[-1].get("next") == "step_" + str(len(steps) + 1):
-            flow[-1]["next"] = "end"
     else:
         steps = _parse_numbered_steps(content)
         for i, step_text in enumerate(steps):
@@ -87,13 +83,16 @@ def convert_legacy_content_to_flow(title: str, content: str, category: str = "")
     if not flow:
         flow = [{"step_id": "step_1", "message": (content or title or "Please follow the instructions provided.")[:500], "options": [], "save_as": "", "condition": "", "next": "end"}]
 
-    return {
+    out: Dict[str, Any] = {
         "title": title,
         "category": category,
         "type": "guided",
         "trigger_phrases": trigger_phrases,
         "flow": flow,
     }
+    if platform_steps:
+        out["_platform_steps"] = platform_steps
+    return out
 
 
 def _extract_trigger_phrases(title: str, content: str) -> List[str]:
@@ -117,6 +116,64 @@ def _has_multiple_platform_sections(content: str, platforms: List[str]) -> bool:
     c = content.lower()
     count = sum(1 for p in platforms if re.search(rf"\b{p}\b|{p}\s*:|{p}\s*\-", c))
     return count >= 2
+
+
+def _parse_content_by_platform(content: str, platform_headers: List[str]) -> Dict[str, List[str]]:
+    """
+    Split content by platform sections and extract steps for each platform only.
+    Returns e.g. {"iphone": [step1, step2], "android": [step1, step2]}.
+    NEVER mix iPhone and Android steps.
+    """
+    if not content or not platform_headers:
+        return {}
+    result: Dict[str, List[str]] = {}
+    content_lower = content.lower()
+    # Split by platform headers: iPhone, Android, etc.
+    for i, platform in enumerate(platform_headers):
+        p_lower = platform.lower()
+        # Pattern: "iPhone" or "iPhone:" or "iPhone -" or "## iPhone" at start of line/section
+        pat = rf"(?:\n|^)\s*[#\-]*\s*{re.escape(p_lower)}\s*[:\-\s]*\s*\n"
+        parts = re.split(pat, content_lower, flags=re.I | re.MULTILINE)
+        # Find section for this platform: after this platform header, before next platform
+        section = ""
+        for j, part in enumerate(parts):
+            if j == 0 and i > 0:
+                continue
+            if j == 1 or (i == 0 and j == 0):
+                section = part
+                break
+            if j == i + 1:
+                section = part
+                break
+        if not section:
+            # Fallback: try splitting by platform name as delimiter
+            idx = content_lower.find(p_lower)
+            if idx >= 0:
+                start = idx + len(p_lower)
+                next_platform_start = len(content)
+                for op in platform_headers:
+                    if op.lower() != p_lower:
+                        ni = content_lower.find(op.lower(), start)
+                        if 0 <= ni < next_platform_start:
+                            next_platform_start = ni
+                section = content[start:next_platform_start]
+            else:
+                section = content
+        steps = _parse_numbered_steps(section)
+        # Strip any mention of OTHER platforms from each step
+        other_platforms = [x.lower() for x in platform_headers if x.lower() != p_lower]
+        cleaned = []
+        for s in steps:
+            s_lower = s.lower()
+            # Remove phrases like "on Android", "for Android", "iPhone or Android", etc.
+            cleaned_s = s
+            for op in other_platforms:
+                cleaned_s = re.sub(rf"\s*(?:on|for|or|and)\s+{op}[^\n.]*\.?", " ", cleaned_s, flags=re.I)
+                cleaned_s = re.sub(rf"{op}\s*(?:or|and)\s+{p_lower}", p_lower, cleaned_s, flags=re.I)
+                cleaned_s = re.sub(rf"{p_lower}\s*(?:or|and)\s+{op}", p_lower, cleaned_s, flags=re.I)
+            cleaned.append(cleaned_s.strip() or s)
+        result[p_lower] = cleaned if cleaned else _parse_numbered_steps(content)
+    return result
 
 
 def _parse_numbered_steps(content: str) -> List[str]:
@@ -166,9 +223,9 @@ def normalize_article_to_flow(article: Dict[str, Any]) -> Optional[Dict[str, Any
             "flow": flow,
         }
 
-    # Legacy: guided_flow + branches (keep for existing _guided_flow_respond in tickets)
+    # Legacy: guided_flow + branches — only add device step when article has multiple device options
     branches = article.get("guided_branches") or article.get("branches")
-    if isinstance(branches, dict) and len(branches) >= 1:
+    if isinstance(branches, dict) and len(branches) >= 2:
         branch_names = list(branches.keys())
         device_step = {
             "step_id": "device",
@@ -271,11 +328,45 @@ def is_confirmation_message(message: str) -> bool:
     return any(p in m for p in CONFIRMATION_KEYWORDS) or m in ("yes", "y", "ok", "k")
 
 
-def flow_get_first_message(flow: List[Dict]) -> str:
-    """Return the first step message (for device question or step 1)."""
+def flow_get_first_message(flow: List[Dict], article_title: str = "") -> str:
+    """Return the first step message (for device question or step 1). Human-like for any topic."""
     if not flow:
         return "I can help with that. What would you like to do?"
-    return flow[0].get("message", "Let's get started.")
+    first = flow[0]
+    msg = first.get("message", "Let's get started.")
+    options = first.get("options") or []
+    topic = (article_title or "this").lower()
+    if options and "device" in (first.get("step_id") or "").lower():
+        msg = f"Alright — I'll guide you through {topic}. It'll only take a few minutes.\n\nWhat device are you using?\n\n" + "\n".join(
+            f"{i+1}️⃣ {opt.get('label', opt.get('value', '')).replace('-', ' ').title()}" for i, opt in enumerate(options[:5])
+        )
+    elif not options and first.get("step_id") and "device" not in (first.get("step_id") or "").lower():
+        msg = f"I'll guide you through {topic}. It'll only take a few minutes.\n\n**First step:**\n{msg}\n\nLet me know when you're there."
+    return msg
+
+
+def _format_platform_step(
+    step_index: int, total_steps: int, instruction: str,
+    device: str, article_title: str, is_first: bool,
+) -> str:
+    """Human-like step message for platform-specific flow."""
+    device_label = (device or "").replace("_", " ").title()
+    topic = article_title or "this"
+    if is_first and step_index == 1:
+        return (
+            f"Perfect 👍 I'll guide you through setting up {topic} on your {device_label}.\n\n"
+            f"**First step:**\n{instruction}\n\n"
+            "Let me know when you're there."
+        )
+    if step_index < total_steps:
+        return (
+            f"Perfect! 👍\n\n**Step {step_index}:**\n{instruction}\n\n"
+            "Let me know when you've done that."
+        )
+    return (
+        f"Almost there! 🎯\n\n**Step {step_index}:**\n{instruction}\n\n"
+        "Let me know when you've completed this step."
+    )
 
 
 def flow_advance(
@@ -283,57 +374,108 @@ def flow_advance(
     current_step_id: str,
     context: Dict[str, Any],
     user_message: str,
+    platform_steps: Optional[Dict[str, List[str]]] = None,
+    article_title: str = "",
 ) -> Tuple[Optional[Dict], Optional[str], Dict[str, Any]]:
     """
     Advance flow state. Returns (next_step_dict, reply_message, new_context).
-    - If current step has options: validate user choice, save to context, return next step.
-    - If current step requires confirmation: if user said done/yes, go to next; else re-send current step.
-    - If no next step: return (None, "Did this resolve your issue?", context) for completion.
+    When platform_steps is set: only use steps for LOCKED device (never mix iPhone/Android).
+    Human-like messaging; clean ending.
     """
     context = dict(context or {})
-    step_index = next((i for i, s in enumerate(flow) if s.get("step_id") == current_step_id), None)
-    if step_index is None:
-        step_index = 0
-    current_step = flow[step_index] if 0 <= step_index < len(flow) else flow[0]
+    platform_steps = platform_steps or {}
     msg_lower = (user_message or "").lower().strip()
 
-    # Step has options (e.g. device choice)
+    # Platform-specific flow: device step + steps from platform_steps[device] only
+    device_context = context.get("device_type", "").lower()
+    steps = platform_steps.get(device_context, []) if device_context else []
+    total_steps = len(steps)
+    step_index = int(context.get("platform_step_index", 1))
+
+    # Current step is device choice
+    step_index_in_flow = next((i for i, s in enumerate(flow) if s.get("step_id") == current_step_id), None)
+    if step_index_in_flow is None:
+        step_index_in_flow = 0
+    current_step = flow[step_index_in_flow] if 0 <= step_index_in_flow < len(flow) else flow[0]
     options = current_step.get("options") or []
-    if options:
+
+    if options and not device_context:
+        # Device choice step - user has not selected yet
         choice = None
         for opt in options:
             val = (opt.get("value") or opt.get("label") or "").lower()
             lab = (opt.get("label") or opt.get("value") or "").lower()
             if msg_lower == val or msg_lower == lab or msg_lower in val or val in msg_lower:
-                choice = opt.get("value") or opt.get("label")
+                choice = (opt.get("value") or opt.get("label") or "").lower()
                 break
         if not choice and msg_lower.isdigit():
             idx = int(msg_lower)
             if 1 <= idx <= len(options):
-                choice = options[idx - 1].get("value") or options[idx - 1].get("label")
+                choice = (options[idx - 1].get("value") or options[idx - 1].get("label") or "").lower()
         if choice:
-            save_as = current_step.get("save_as")
-            if save_as:
-                context[save_as] = choice
-            next_id = current_step.get("next") or "step_1"
-            next_step = next((s for s in flow if s.get("step_id") == next_id), None)
-            if next_step:
-                return (next_step, next_step.get("message"), context)
-            return (None, "Did this resolve your issue?", context)
-        return (current_step, "I didn't catch that. Please choose one of the options above.", context)
+            context["device_type"] = choice
+            if platform_steps and steps := platform_steps.get(choice, []):
+                context["platform_step_index"] = 1
+                inst = steps[0]
+                reply = _format_platform_step(1, len(steps), inst, choice, article_title, is_first=True)
+                return ({"step_id": "platform_step_1", "message": inst}, reply, context)
+            return (None, "That is all I have. Let me know if that works for you or if you want me to escalate your problem to support.", context)
+        return (current_step, "I didn't catch that. Please choose one of the options (e.g. iPhone or Android).", context)
 
-    # Step is instruction; need confirmation to advance
-    if is_confirmation_message(user_message):
-        next_id = current_step.get("next") or "end"
-        if next_id == "end":
-            return (None, "It looks like we've completed all steps. Did this resolve your issue?", context)
+    # Platform steps flow: we have device locked, use ONLY that device's steps
+    if platform_steps and device_context and steps:
+        if is_confirmation_message(msg_lower):
+            if step_index < total_steps:
+                next_idx = step_index + 1
+                context["platform_step_index"] = next_idx
+                inst = steps[next_idx - 1]
+                reply = _format_platform_step(next_idx, total_steps, inst, device_context, article_title, is_first=False)
+                return ({"step_id": f"platform_step_{next_idx}", "message": inst}, reply, context)
+            else:
+                return (None, "That is all I have. Let me know if that works for you or if you want me to escalate your problem to support.", context)
+        # Re-send current step
+        if step_index <= total_steps:
+            inst = steps[step_index - 1]
+            reply = _format_platform_step(step_index, total_steps, inst, device_context, article_title, is_first=(step_index == 1))
+            return ({"step_id": f"platform_step_{step_index}", "message": inst}, reply, context)
+
+    def _humanize_step(step_dict: Dict, step_idx: int, total: int) -> str:
+        """Human-like step message for non-platform flows."""
+        raw = step_dict.get("message", "Let me know when you're done.")
+        if step_idx == 1 and total >= 1:
+            return f"I'll guide you through {article_title or 'this'}. It'll only take a few minutes.\n\n**First step:**\n{raw}\n\nLet me know when you're there."
+        if step_idx < total:
+            return f"Perfect! 👍\n\n**Step {step_idx}:**\n{raw}\n\nLet me know when you've done that."
+        return f"Almost there! 🎯\n\n**Step {step_idx}:**\n{raw}\n\nLet me know when you've completed this step."
+
+    instruction_steps = [s for s in flow if (s.get("step_id") or "").startswith("step_")]
+    total_instruction_steps = len(instruction_steps)
+
+    # Fallback: original flow (no platform_steps)
+    if options and device_context:
+        next_id = current_step.get("next") or "step_1"
         next_step = next((s for s in flow if s.get("step_id") == next_id), None)
         if next_step:
-            return (next_step, next_step.get("message"), context)
-        return (None, "It looks like we've completed all steps. Did this resolve your issue?", context)
+            idx = int((next_id or "step_1").replace("step_", "") or 1)
+            reply = _humanize_step(next_step, idx, total_instruction_steps)
+            return (next_step, reply, context)
+        return (None, "That is all I have. Let me know if that works for you or if you want me to escalate your problem to support.", context)
 
-    # User didn't confirm: re-send current step
-    return (current_step, current_step.get("message", "Let me know when you've completed this step."), context)
+    if is_confirmation_message(msg_lower):
+        next_id = current_step.get("next") or "end"
+        if next_id == "end":
+            return (None, "That is all I have. Let me know if that works for you or if you want me to escalate your problem to support.", context)
+        next_step = next((s for s in flow if s.get("step_id") == next_id), None)
+        if next_step:
+            idx = int((next_id or "step_1").replace("step_", "") or 1)
+            reply = _humanize_step(next_step, idx, total_instruction_steps)
+            return (next_step, reply, context)
+        return (None, "That is all I have. Let me know if that works for you or if you want me to escalate your problem to support.", context)
+
+    raw = current_step.get("message", "Let me know when you've completed this step.")
+    idx = int((current_step.get("step_id") or "step_1").replace("step_", "") or 1)
+    reply = _humanize_step(current_step, idx, total_instruction_steps)
+    return (current_step, reply, context)
 
 
 def flow_get_step_by_index(flow: List[Dict], index: int) -> Optional[Dict]:

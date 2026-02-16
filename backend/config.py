@@ -24,6 +24,13 @@ FIREBASE_MESSAGING_SENDER_ID = os.getenv("FIREBASE_MESSAGING_SENDER_ID", "")
 FIREBASE_APP_ID = os.getenv("FIREBASE_APP_ID", "")
 FIREBASE_MEASUREMENT_ID = os.getenv("FIREBASE_MEASUREMENT_ID", "")
 
-# CORS allowed origins (comma-separated list)
-_cors = os.getenv("CORS_ORIGINS", "https://aihelpdesk-21060.web.app,https://aihelpdesk-21060.firebaseapp.com")
-CORS_ORIGINS = [s.strip() for s in _cors.split(",") if s.strip()]
+# CORS: env-driven. Comma-separated list, or default production + Firebase preview support
+_DEFAULT_CORS_ORIGINS = "https://aihelpdesk-21060.web.app,https://aihelpdesk-21060.firebaseapp.com,https://aihelpdesk-dev.web.app"
+_cors_raw = os.getenv("CORS_ORIGINS", _DEFAULT_CORS_ORIGINS)
+CORS_ORIGINS = [s.strip() for s in _cors_raw.split(",") if s.strip()]
+
+# Regex to allow any Firebase Hosting origin (*.web.app) for preview channels
+CORS_ORIGIN_REGEX = r"^https://[^/]+\.web\.app$"
+
+# ENV: "development" vs "production" (optional)
+ENVIRONMENT = os.getenv("ENV", os.getenv("ENVIRONMENT", "production")).lower()

@@ -15,7 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import firebase_admin
 from firebase_admin import credentials
 
-from config import CORS_ORIGINS
+from config import CORS_ORIGINS, CORS_ORIGIN_REGEX, ENVIRONMENT
 from routes import auth, knowledge_base, tickets
 
 
@@ -39,14 +39,25 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# CORS middleware — allow origins from env (CORS_ORIGINS)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=CORS_ORIGINS,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# CORS: environment-driven. CORS_ORIGINS from env (comma-separated), or default list.
+# allow_origin_regex permits any Firebase Hosting origin (*.web.app) for preview channels.
+if ENVIRONMENT == "development":
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=False,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+else:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=CORS_ORIGINS,
+        allow_origin_regex=CORS_ORIGIN_REGEX,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
 
 @app.on_event("startup")

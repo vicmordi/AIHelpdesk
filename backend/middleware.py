@@ -50,6 +50,8 @@ async def get_current_user(decoded_token: dict = Depends(verify_token)) -> dict:
     if not user_doc.exists:
         raise HTTPException(status_code=404, detail="User not found")
     user_data = user_doc.to_dict()
+    if user_data.get("disabled"):
+        raise HTTPException(status_code=403, detail="Account is disabled")
     # Normalize role: legacy "admin" -> super_admin for RBAC
     role = user_data.get("role", "employee")
     if role == "admin":
@@ -61,6 +63,7 @@ async def get_current_user(decoded_token: dict = Depends(verify_token)) -> dict:
         "organization_id": user_data.get("organization_id"),
         "must_change_password": user_data.get("must_change_password", False),
         "created_at": user_data.get("created_at"),
+        "last_login": user_data.get("last_login"),
     }
 
 

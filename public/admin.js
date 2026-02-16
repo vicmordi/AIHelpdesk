@@ -1,11 +1,278 @@
 /**
- * Admin Dashboard JavaScript — backend API only, no Firebase client SDK.
+ * Admin Dashboard JavaScript — backend API only, hash-based pages, sidebar.
  */
 import { apiRequest, clearToken, isAuthenticated } from "./api.js";
+import { renderSidebar } from "./js/sidebar.js";
 
 let currentUser = null;
 
-// Check authentication (token-based)
+function showPage(pageId) {
+    document.querySelectorAll(".admin-page").forEach((el) => {
+        el.classList.toggle("active", el.getAttribute("data-page") === pageId);
+    });
+    if (pageId === "tickets") {
+        loadAllTickets();
+        loadAssignableMembers();
+    } else if (pageId === "knowledge-base") loadKnowledgeBase();
+    else if (pageId === "add-article") {
+        loadKnowledgeBase();
+        renderAddArticleList();
+    } else if (pageId === "dashboard") loadDashboardStats();
+    else if (pageId === "support-admins") {
+        if (currentUser?.role === "super_admin") loadSupportAdminsPage();
+        else document.getElementById("support-admins-list") && (document.getElementById("support-admins-list").innerHTML = "<p class=\"empty-state\">Access denied.</p>");
+    } else if (pageId === "settings") {
+        if (currentUser?.role === "super_admin") loadSettingsPage();
+        else document.getElementById("settings-content") && (document.getElementById("settings-content").innerHTML = "<p class=\"empty-state\">Access denied. Super admin only.</p>");
+    }
+}
+
+function loadDashboardStats() {
+    apiRequest("/tickets").then((data) => {
+        const tickets = data.tickets || [];
+        const stats = {
+            total: tickets.length,
+            resolved: tickets.filter((t) => t.status === "resolved" || t.status === "auto_resolved").length,
+            escalated: tickets.filter((t) => t.escalated === true).length,
+            in_progress: tickets.filter((t) => t.status === "in_progress").length,
+        };
+        updateStatistics(stats);
+    }).catch(() => updateStatistics({ total: 0, resolved: 0, escalated: 0, in_progress: 0 }));
+}
+
+async function loadAssignableMembers() {
+    const sel = document.getElementById("assigned-to-filter");
+    if (!sel) return;
+    try {
+        const data = await apiRequest("/organization/members");
+        const members = data.members || [];
+        const current = sel.value;
+        sel.innerHTML = '<option value="">All assignees</option>' + members
+            .filter((m) => m.role === "support_admin" || m.role === "super_admin")
+            .map((m) => `<option value="${m.uid}">${m.email}</option>`).join("");
+        if (current) sel.value = current;
+    } catch (_) {
+        sel.innerHTML = '<option value="">All assignees</option>';
+    }
+}
+
+function renderAddArticleList() {
+    const el = document.getElementById("add-article-list");
+    if (!el) return;
+    apiRequest("/knowledge-base").then((data) => {
+        const articles = (data.articles || []).slice(0, 10);
+        if (articles.length === 0) {
+            el.innerHTML = "<p class=\"empty-state\">No articles yet.</p>";
+            return;
+        }
+        el.innerHTML = articles.map((a) => `
+            <div class="article-card" data-article-id="${a.id}">
+                <h3>${escapeHtml(a.title)}</h3>
+                <p>${escapeHtml((a.content || "").length > 120 ? a.content.substring(0, 120) + "..." : a.content)}</p>
+                <button type="button" class="btn btn-primary view-article-btn" data-article-id="${a.id}">View</button>
+            </div>
+        `).join("");
+    }).catch(() => { el.innerHTML = "<p>Error loading articles.</p>"; });
+}
+
+async function loadSupportAdminsPage() {
+    const listEl = document.getElementById("support-admins-list");
+    if (!listEl) return;
+    listEl.innerHTML = "<div class=\"loading\">Loading...</div>";
+    try {
+        const data = await apiRequest("/admin/users");
+        const users = (data.users || []).filter((u) => u.role === "support_admin" || u.role === "super_admin");
+        if (users.length === 0) {
+            listEl.innerHTML = "<p class=\"empty-state\">No support admins yet. Create one above.</p>";
+            return;
+        }
+        listEl.innerHTML = `
+            <table class="data-table">
+                <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th>Created</th><th>Actions</th></tr></thead>
+                <tbody>
+                    ${users.map((u) => `
+                        <tr>
+                            <td>${escapeHtml(u.name || u.email || "")}</td>
+                            <td>${escapeHtml(u.email || "")}</td>
+                            <td><span class="badge ${u.role === 'super_admin' ? 'badge-warning' : 'badge-info'}">${u.role}</span></td>
+                            <td>${u.status === "disabled" ? "<span class=\"badge badge-danger\">Disabled</span>" : "Active"}</td>
+                            <td>${u.created_at ? new Date(u.created_at).toLocaleDateString() : "-"}</td>
+                            <td>
+                                ${u.role !== "super_admin" && u.uid !== currentUser?.uid ? `
+                                    <button type="button" class="btn btn-small btn-secondary support-admin-reset-pwd" data-uid="${u.uid}">Reset password</button>
+                                    ${u.status === "disabled" ? `<button type="button" class="btn btn-small btn-secondary support-admin-enable" data-uid="${u.uid}">Enable</button>` : `<button type="button" class="btn btn-small btn-danger support-admin-disable" data-uid="${u.uid}">Disable</button>`}
+                                    <button type="button" class="btn btn-small btn-danger support-admin-delete" data-uid="${u.uid}">Delete</button>
+                                ` : "-"}
+                            </td>
+                        </tr>
+                    `).join("")}
+                </tbody>
+            </table>
+        `;
+        listEl.querySelectorAll(".support-admin-reset-pwd").forEach((btn) => btn.addEventListener("click", () => resetSupportAdminPassword(btn.dataset.uid)));
+        listEl.querySelectorAll(".support-admin-disable").forEach((btn) => btn.addEventListener("click", () => disableSupportAdmin(btn.dataset.uid)));
+        listEl.querySelectorAll(".support-admin-enable").forEach((btn) => btn.addEventListener("click", () => enableSupportAdmin(btn.dataset.uid)));
+        listEl.querySelectorAll(".support-admin-delete").forEach((btn) => btn.addEventListener("click", () => deleteSupportAdmin(btn.dataset.uid)));
+    } catch (e) {
+        listEl.innerHTML = `<p class="error-message">${e.message || "Failed to load"}</p>`;
+    }
+}
+
+async function resetSupportAdminPassword(uid) {
+    const newPassword = prompt("Enter new temporary password (min 6 characters):");
+    if (!newPassword || newPassword.length < 6) return;
+    try {
+        await apiRequest("/admin/reset-support-admin-password", { method: "POST", body: JSON.stringify({ uid, new_password: newPassword }) });
+        showSuccess("Password reset. User must change on next login.");
+        loadSupportAdminsPage();
+    } catch (e) { showError(e.message || "Failed"); }
+}
+
+async function disableSupportAdmin(uid) {
+    if (!confirm("Disable this user?")) return;
+    try {
+        await apiRequest(`/admin/disable-support-admin/${uid}`, { method: "PUT" });
+        showSuccess("User disabled.");
+        loadSupportAdminsPage();
+    } catch (e) { showError(e.message || "Failed"); }
+}
+
+async function enableSupportAdmin(uid) {
+    try {
+        await apiRequest(`/admin/enable-support-admin/${uid}`, { method: "PUT" });
+        showSuccess("User enabled.");
+        loadSupportAdminsPage();
+    } catch (e) { showError(e.message || "Failed"); }
+}
+
+async function deleteSupportAdmin(uid) {
+    if (!confirm("Permanently delete this user? This cannot be undone.")) return;
+    try {
+        await apiRequest(`/admin/support-admin/${uid}`, { method: "DELETE" });
+        showSuccess("User deleted.");
+        loadSupportAdminsPage();
+    } catch (e) { showError(e.message || "Failed"); }
+}
+
+async function loadSettingsPage() {
+    const content = document.getElementById("settings-content");
+    if (!content) return;
+    content.innerHTML = "<div class=\"loading\">Loading settings...</div>";
+    try {
+        let org = null;
+        try { org = await apiRequest("/organization"); } catch (_) {}
+        let users = [];
+        if (org) {
+            try {
+                const usersData = await apiRequest("/admin/users");
+                users = usersData.users || [];
+            } catch (_) {}
+        }
+
+        content.innerHTML = `
+            <div class="card">
+                <div class="card-header"><h2>Organization</h2></div>
+                <div class="card-body">
+                    ${org ? `
+                        <p><strong>Name:</strong> ${escapeHtml(org.name || "")}</p>
+                        <p><strong>Code:</strong> ${escapeHtml(org.organization_code || "")}</p>
+                        <p><strong>Created:</strong> ${org.created_at ? new Date(org.created_at).toLocaleDateString() : "-"}</p>
+                        <p><strong>Total members:</strong> ${org.total_members ?? "-"}</p>
+                        <p><strong>Total tickets:</strong> ${org.total_tickets ?? "-"}</p>
+                        <form id="update-org-form" class="form-inline" style="margin-top: 16px;">
+                            <input type="text" id="settings-org-name" placeholder="Organization name" value="${escapeHtml(org.name || "")}">
+                            <input type="text" id="settings-org-code" placeholder="Organization code" value="${escapeHtml(org.organization_code || "")}">
+                            <button type="submit" class="btn btn-primary">Update</button>
+                        </form>
+                    ` : `
+                        <p>No organization linked. Create one to manage your team.</p>
+                        <form id="create-org-legacy-form" class="form-inline">
+                            <input type="text" id="legacy-org-name" placeholder="Organization name" required>
+                            <input type="text" id="legacy-org-code" placeholder="Organization code" required>
+                            <button type="submit" class="btn btn-primary">Create organization</button>
+                        </form>
+                    `}
+                </div>
+            </div>
+            <div class="card">
+                <div class="card-header"><h2>Security</h2></div>
+                <div class="card-body">
+                    <form id="change-password-form">
+                        <div class="form-group">
+                            <label>Change your password</label>
+                            <input type="password" id="current-password" placeholder="Current password" required>
+                            <input type="password" id="new-password" placeholder="New password" required minlength="6">
+                            <button type="submit" class="btn btn-primary">Update password</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+            <div class="card">
+                <div class="card-header"><h2>User management</h2></div>
+                <div class="card-body">
+                    <table class="data-table">
+                        <thead><tr><th>Email</th><th>Role</th><th>Status</th><th>Last login</th><th>Actions</th></tr></thead>
+                        <tbody>
+                            ${users.map((u) => `
+                                <tr>
+                                    <td>${escapeHtml(u.email || "")}</td>
+                                    <td><span class="badge badge-info">${u.role}</span></td>
+                                    <td>${u.status === "disabled" ? "<span class=\"badge badge-danger\">Disabled</span>" : "Active"}</td>
+                                    <td>${u.last_login ? new Date(u.last_login).toLocaleString() : "-"}</td>
+                                    <td>
+                                        ${u.role !== "super_admin" && u.uid !== currentUser?.uid ? `
+                                            ${u.status === "disabled" ? `<button type="button" class="btn btn-small support-admin-enable" data-uid="${u.uid}">Enable</button>` : `<button type="button" class="btn btn-small support-admin-disable" data-uid="${u.uid}">Disable</button>`}
+                                        ` : "-"}
+                                    </td>
+                                </tr>
+                            `).join("")}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        `;
+
+        const updateOrgForm = content.querySelector("#update-org-form");
+        if (updateOrgForm) updateOrgForm.addEventListener("submit", async (e) => {
+            e.preventDefault();
+            const name = content.querySelector("#settings-org-name")?.value?.trim();
+            const code = content.querySelector("#settings-org-code")?.value?.trim();
+            try {
+                await apiRequest("/organization", { method: "PUT", body: JSON.stringify({ name: name || undefined, organization_code: code || undefined }) });
+                showSuccess("Organization updated.");
+                loadSettingsPage();
+            } catch (err) { showError(err.message || "Failed"); }
+        });
+        const createOrgForm = content.querySelector("#create-org-legacy-form");
+        if (createOrgForm) createOrgForm.addEventListener("submit", async (e) => {
+            e.preventDefault();
+            const name = content.querySelector("#legacy-org-name")?.value?.trim();
+            const code = content.querySelector("#legacy-org-code")?.value?.trim();
+            try {
+                await apiRequest("/auth/create-org-for-legacy", { method: "POST", body: JSON.stringify({ organization_name: name, organization_code: code }) });
+                showSuccess("Organization created.");
+                loadSettingsPage();
+            } catch (err) { showError(err.message || "Failed"); }
+        });
+        const changePwdForm = content.querySelector("#change-password-form");
+        if (changePwdForm) changePwdForm.addEventListener("submit", async (e) => {
+            e.preventDefault();
+            const current = content.querySelector("#current-password")?.value;
+            const newPwd = content.querySelector("#new-password")?.value;
+            try {
+                await apiRequest("/auth/change-password", { method: "POST", body: JSON.stringify({ current_password: current, new_password: newPwd }) });
+                showSuccess("Password updated.");
+                changePwdForm.reset();
+            } catch (err) { showError(err.message || "Failed"); }
+        });
+        content.querySelectorAll(".support-admin-disable").forEach((btn) => btn.addEventListener("click", () => disableSupportAdmin(btn.dataset.uid)));
+        content.querySelectorAll(".support-admin-enable").forEach((btn) => btn.addEventListener("click", () => enableSupportAdmin(btn.dataset.uid)));
+    } catch (e) {
+        content.innerHTML = `<p class="error-message">${e.message || "Failed to load settings"}</p>`;
+    }
+}
+
+// Check authentication and init sidebar + routing
 (async function initAuth() {
     if (!isAuthenticated()) {
         window.location.href = "login.html";
@@ -15,21 +282,46 @@ let currentUser = null;
         const userData = await apiRequest("/auth/me");
         const adminRoles = ["admin", "super_admin", "support_admin"];
         if (!adminRoles.includes(userData.role || "")) {
-            alert("Access denied. Administrator privileges required. Your role: " + (userData.role || "employee"));
+            alert("Access denied. Administrator privileges required.");
             window.location.href = "submit-ticket.html";
             return;
         }
         currentUser = userData;
-        // Show super_admin-only section (create support admin, update org code)
-        const superAdminSection = document.getElementById("super-admin-section");
-        if (superAdminSection) superAdminSection.style.display = (userData.role === "super_admin" ? "block" : "none");
-        document.getElementById("user-email").textContent = userData.email || "";
-        const avatar = document.getElementById("user-avatar");
-        if (avatar) avatar.textContent = (userData.email || "A").charAt(0).toUpperCase();
+
+        const sidebarEl = document.getElementById("admin-sidebar");
+        if (sidebarEl) {
+            renderSidebar(sidebarEl, {
+                currentUser: userData,
+                onLogout: () => { clearToken(); window.location.href = "login.html"; },
+                onOpenMessages: () => openMessagesModal(),
+            });
+        }
+
+        const mobileMenu = document.getElementById("admin-mobile-menu");
+        const overlay = document.getElementById("admin-overlay");
+        if (mobileMenu && sidebarEl) {
+            mobileMenu.addEventListener("click", () => sidebarEl.classList.toggle("open"));
+            overlay?.addEventListener("click", () => sidebarEl.classList.remove("open"));
+        }
+
+        const hash = (window.location.hash || "#dashboard").replace("#", "") || "dashboard";
+        if (hash === "messages") {
+            openMessagesModal();
+            window.location.hash = "dashboard";
+        }
+        showPage(hash === "messages" ? "dashboard" : hash);
+        window.addEventListener("hashchange", () => {
+            const h = (window.location.hash || "#dashboard").replace("#", "") || "dashboard";
+            if (h === "messages") {
+                openMessagesModal();
+                history.replaceState(null, "", "#dashboard");
+                showPage("dashboard");
+                return;
+            }
+            showPage(h);
+        });
+
         loadKnowledgeBase();
-        loadAllTickets();
-        loadEscalatedTickets();
-        document.getElementById("messages-icon-btn")?.addEventListener("click", () => openMessagesModal());
     } catch (err) {
         console.error("Error loading user data:", err);
         showError("Failed to load user data");
@@ -40,39 +332,27 @@ let currentUser = null;
 
 // Wait for DOM to be ready
 document.addEventListener('DOMContentLoaded', () => {
-    // Responsive nav: hamburger toggle, close on link click or resize to desktop
-    const topNav = document.getElementById('top-nav');
-    const navToggle = document.getElementById('nav-toggle');
-    const navMenu = document.getElementById('nav-menu');
-    function closeNavMenu() {
-        if (!topNav) return;
-        topNav.classList.remove('open');
-        if (navToggle) navToggle.setAttribute('aria-expanded', 'false');
-    }
-    function openNavMenu() {
-        if (!topNav) return;
-        topNav.classList.add('open');
-        if (navToggle) navToggle.setAttribute('aria-expanded', 'true');
-    }
-    if (navToggle && topNav) {
-        navToggle.addEventListener('click', () => {
-            const isOpen = topNav.classList.contains('open');
-            if (isOpen) closeNavMenu();
-            else openNavMenu();
+    // Dashboard stat cards: navigate to tickets with filter
+    document.querySelectorAll('.stat-card[data-filter]').forEach(card => {
+        card.addEventListener('click', () => {
+            const filter = card.dataset.filter;
+            window.location.hash = 'tickets';
+            window.currentTicketFilter = filter;
+            const statusFilter = document.getElementById('status-filter');
+            if (statusFilter) statusFilter.value = filter;
+            showPage('tickets');
         });
-    }
-    if (navMenu) {
-        navMenu.addEventListener('click', () => closeNavMenu());
-    }
-    window.addEventListener('resize', () => {
-        if (window.innerWidth >= 769) closeNavMenu();
     });
-    // Close mobile menu when clicking outside the nav (only on mobile)
-    document.body.addEventListener('click', (e) => {
-        if (window.innerWidth < 769 && topNav && topNav.classList.contains('open') && !e.target.closest('#top-nav')) {
-            closeNavMenu();
-        }
+    // Tickets page filters
+    const statusGroupFilter = document.getElementById('status-group-filter');
+    const assignedToFilter = document.getElementById('assigned-to-filter');
+    const ticketsSearch = document.getElementById('tickets-search');
+    [statusGroupFilter, assignedToFilter, ticketsSearch].forEach(el => {
+        if (el) el.addEventListener('change', () => loadAllTickets());
     });
+    if (ticketsSearch) ticketsSearch.addEventListener('input', () => { clearTimeout(window._searchTickets); window._searchTickets = setTimeout(loadAllTickets, 300); });
+    const statusFilter = document.getElementById('status-filter');
+    if (statusFilter) statusFilter.addEventListener('change', () => loadAllTickets());
 
     // Single body delegation: modal close, overlay click, and article View/Delete (no inline handlers)
     document.body.addEventListener('click', (e) => {
@@ -140,10 +420,17 @@ document.addEventListener('DOMContentLoaded', () => {
         if (card) openTicketFromMessages(card.dataset.ticketId);
     });
     
-    // Ticket modal body: delegation for Update status button (dynamic content)
+    // Ticket modal body: delegation for Update status and Assign (dynamic content)
     document.getElementById('ticket-modal')?.addEventListener('click', (e) => {
-        const btn = e.target.closest('[data-action="update-ticket-status"]');
-        if (btn && btn.dataset.ticketId) updateTicketStatus(btn.dataset.ticketId);
+        const updateBtn = e.target.closest('[data-action="update-ticket-status"]');
+        if (updateBtn && updateBtn.dataset.ticketId) {
+            updateTicketStatus(updateBtn.dataset.ticketId);
+            return;
+        }
+        const assignBtn = e.target.closest('[data-action="assign-ticket"]');
+        if (assignBtn && assignBtn.dataset.ticketId) {
+            assignTicket(assignBtn.dataset.ticketId);
+        }
     });
     
     // Logout handler
@@ -152,42 +439,6 @@ document.addEventListener('DOMContentLoaded', () => {
         logoutBtn.addEventListener("click", () => {
             clearToken();
             window.location.href = "login.html";
-        });
-    }
-    
-    // Tab switching
-    document.querySelectorAll('.tab-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            const tabName = btn.dataset.tab;
-            
-            // Update active tab button
-            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-            
-            // Update active tab content
-            document.querySelectorAll('.tab-content').forEach(content => {
-                content.classList.remove('active');
-            });
-            const tabContent = document.getElementById(`${tabName}-tab`);
-            if (tabContent) {
-                tabContent.classList.add('active');
-            }
-            
-            // Load data for active tab
-            if (tabName === 'all-tickets') {
-                loadAllTickets();
-            } else if (tabName === 'escalated-tickets') {
-                loadEscalatedTickets();
-            }
-        });
-    });
-    
-    // Status filter handler
-    const statusFilter = document.getElementById('status-filter');
-    if (statusFilter) {
-        statusFilter.addEventListener('change', () => {
-            window.currentTicketFilter = statusFilter.value;
-            loadAllTickets();
         });
     }
     
@@ -224,10 +475,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // Reload ticket to show new message
         await openTicketModal(ticketId);
         
-        // Reload ticket lists to update unread counts and message icon badge
         await loadAllTickets();
-        loadEscalatedTickets();
-        
         showSuccess('Message sent successfully!');
                 
             } catch (error) {
@@ -258,7 +506,7 @@ document.getElementById('kb-form').addEventListener('submit', async (e) => {
         showSuccess('Article saved successfully!');
         document.getElementById('kb-form').reset();
         loadKnowledgeBase();
-        
+        if (document.getElementById('page-add-article')?.classList.contains('active')) renderAddArticleList();
     } catch (error) {
         showError(`Failed to save article: ${error.message}`);
     }
@@ -280,26 +528,6 @@ if (createSupportAdminForm) {
             createSupportAdminForm.reset();
         } catch (err) {
             showError(err.message || 'Failed to create support admin');
-        }
-    });
-}
-
-// Update organization code (super_admin only)
-const updateOrgCodeForm = document.getElementById('update-org-code-form');
-if (updateOrgCodeForm) {
-    updateOrgCodeForm.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const organization_code = document.getElementById('new-org-code').value.trim();
-        if (!organization_code) return;
-        try {
-            await apiRequest('/organization/update-code', {
-                method: 'PUT',
-                body: JSON.stringify({ organization_code })
-            });
-            showSuccess('Organization code updated.');
-            updateOrgCodeForm.reset();
-        } catch (err) {
-            showError(err.message || 'Failed to update organization code');
         }
     });
 }
@@ -383,6 +611,7 @@ async function deleteArticle(articleId) {
  */
 async function loadEscalatedTickets() {
     const ticketsList = document.getElementById('escalated-tickets-list');
+    if (!ticketsList) return;
     ticketsList.innerHTML = '<p class="loading">Loading tickets...</p>';
     
     try {
@@ -507,16 +736,27 @@ function showSuccess(message) {
 }
 
 /**
- * Load all tickets (admin view)
+ * Load all tickets (admin view). Uses status_group, assigned_to, search and status filter.
  */
 async function loadAllTickets() {
     const ticketsList = document.getElementById('all-tickets-list');
     if (!ticketsList) return;
-    
+
+    const statusGroup = document.getElementById('status-group-filter')?.value || '';
+    const assignedTo = document.getElementById('assigned-to-filter')?.value || '';
+    const search = document.getElementById('tickets-search')?.value?.trim() || '';
+    const statusFilter = document.getElementById('status-filter')?.value || 'all';
+    const params = new URLSearchParams();
+    if (statusGroup) params.set('status_group', statusGroup);
+    if (assignedTo) params.set('assigned_to', assignedTo);
+    if (search) params.set('search', search);
+    const qs = params.toString();
+    const url = '/tickets' + (qs ? '?' + qs : '');
+
     ticketsList.innerHTML = '<div class="loading">Loading tickets...</div>';
-    
+
     try {
-        const data = await apiRequest('/tickets');
+        const data = await apiRequest(url);
         let tickets = data.tickets || [];
         
         // Calculate unread counts (admin sees unread user messages) and statistics
@@ -565,23 +805,6 @@ async function loadAllTickets() {
             }
         }
         
-        // Update header unread badge (message icon)
-        const headerUnreadBadge = document.getElementById('header-unread-badge');
-        if (headerUnreadBadge) {
-            if (totalUnread > 0) {
-                headerUnreadBadge.textContent = totalUnread > 99 ? '99+' : totalUnread;
-                headerUnreadBadge.style.display = 'inline-flex';
-            } else {
-                headerUnreadBadge.style.display = 'none';
-            }
-        }
-        
-        // Always show message icon, even if no unread messages
-        const messagesIconBtn = document.getElementById('messages-icon-btn');
-        if (messagesIconBtn) {
-            messagesIconBtn.style.display = 'block';
-        }
-        
         // Store tickets for filtering
         window.allTickets = tickets;
         
@@ -591,43 +814,23 @@ async function loadAllTickets() {
             document.querySelector('.stat-card[data-filter="all"]')?.classList.add('active');
         }
         
-        // Apply status filter (from dropdown or stat card)
-        const statusFilter = document.getElementById('status-filter')?.value || window.currentTicketFilter || 'all';
-        if (statusFilter !== 'all') {
-            if (statusFilter === 'resolved') {
+        // Apply status filter (from dropdown)
+        const statusFilterVal = document.getElementById('status-filter')?.value || window.currentTicketFilter || 'all';
+        if (statusFilterVal !== 'all') {
+            if (statusFilterVal === 'resolved') {
                 tickets = tickets.filter(t => t.status === 'resolved' || t.status === 'auto_resolved');
-            } else if (statusFilter === 'escalated') {
-                // Use escalated field, not status
+            } else if (statusFilterVal === 'escalated') {
                 tickets = tickets.filter(t => t.escalated === true);
             } else {
-                tickets = tickets.filter(t => t.status === statusFilter);
+                tickets = tickets.filter(t => t.status === statusFilterVal);
             }
         }
-        
-        // Update list title
+
         const listTitle = document.getElementById('tickets-list-title');
-        if (listTitle) {
-            if (statusFilter === 'all') {
-                listTitle.textContent = 'All Tickets';
-            } else {
-                listTitle.textContent = `All Tickets - ${statusFilter.replace('_', ' ').toUpperCase()}`;
-            }
-        }
-        
-        // Update count badge
-        const allTicketsCount = document.getElementById('all-tickets-count');
-        if (allTicketsCount) {
-            allTicketsCount.textContent = tickets.length;
-            allTicketsCount.style.display = tickets.length > 0 ? 'inline-flex' : 'none';
-        }
-        
+        if (listTitle) listTitle.textContent = statusFilterVal === 'all' ? 'All Tickets' : `All Tickets - ${statusFilterVal.replace('_', ' ').toUpperCase()}`;
+
         if (tickets.length === 0) {
-            ticketsList.innerHTML = `
-                <div class="empty-state">
-                    <div class="empty-state-icon">📝</div>
-                    <p>No tickets found${statusFilter !== 'all' ? ` with status "${statusFilter}"` : ''}.</p>
-                </div>
-            `;
+            ticketsList.innerHTML = `<div class="empty-state"><div class="empty-state-icon">📝</div><p>No tickets found.</p></div>`;
             return;
         }
         
@@ -1138,6 +1341,15 @@ async function openTicketModal(ticketId) {
                         </select>
                         <button type="button" class="btn btn-primary btn-sm" data-action="update-ticket-status" data-ticket-id="${ticketId}">Update</button>
                     </div>
+                    ${currentUser?.role === 'super_admin' ? `
+                    <div class="assign-controls" style="margin-top: 12px;">
+                        <label for="ticket-assign-select">Assign to:</label>
+                        <select id="ticket-assign-select">
+                            <option value="">Unassigned</option>
+                        </select>
+                        <button type="button" class="btn btn-primary btn-sm" data-action="assign-ticket" data-ticket-id="${ticketId}">Assign</button>
+                    </div>
+                    ` : ''}
                 </div>
             </div>
             
@@ -1180,6 +1392,18 @@ async function openTicketModal(ticketId) {
         
         // Show message input for admins
         messageInputArea.style.display = 'block';
+
+        // Populate assign dropdown for super_admin
+        const assignSelect = document.getElementById('ticket-assign-select');
+        if (assignSelect && currentUser?.role === 'super_admin') {
+            try {
+                const memData = await apiRequest('/organization/members');
+                const members = (memData.members || []).filter((m) => m.role === 'support_admin' || m.role === 'super_admin');
+                assignSelect.innerHTML = '<option value="">Unassigned</option>' + members.map((m) => `<option value="${m.uid}" ${ticket.assigned_to === m.uid ? 'selected' : ''}>${escapeHtml(m.email)}</option>`).join('');
+            } catch (_) {
+                assignSelect.innerHTML = '<option value="">Unassigned</option>';
+            }
+        }
         
         // Scroll to bottom of conversation
         const conversationThread = modalBody.querySelector('.conversation-thread');
@@ -1224,13 +1448,30 @@ async function updateTicketStatus(ticketId) {
         
         showSuccess('Ticket status updated successfully!');
         
-        // Reload ticket modal and ticket lists
         await openTicketModal(ticketId);
         loadAllTickets();
-        loadEscalatedTickets();
-        
     } catch (error) {
         showError(`Failed to update status: ${error.message}`);
+    }
+}
+
+/**
+ * Assign ticket to user (super_admin only)
+ */
+async function assignTicket(ticketId) {
+    const assignSelect = document.getElementById('ticket-assign-select');
+    if (!assignSelect) return;
+    const uid = assignSelect.value || null;
+    try {
+        await apiRequest(`/tickets/${ticketId}/assign`, {
+            method: 'PUT',
+            body: JSON.stringify({ assigned_to: uid })
+        });
+        showSuccess(uid ? 'Ticket assigned.' : 'Ticket unassigned.');
+        await openTicketModal(ticketId);
+        loadAllTickets();
+    } catch (error) {
+        showError(error.message || 'Failed to assign');
     }
 }
 

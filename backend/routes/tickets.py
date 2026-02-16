@@ -5,6 +5,7 @@ Ticket routes with AI resolution
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from typing import List, Optional
+from fastapi import Query
 from datetime import datetime
 from openai import OpenAI
 import json
@@ -341,11 +342,51 @@ ANALYSIS REQUIRED:
         }
 
 
+def _ticket_matches_filters(
+    ticket: dict,
+    status_group: Optional[str],
+    assigned_to: Optional[str],
+    search: Optional[str],
+) -> bool:
+    """Apply optional filters: status_group (open/closed/assigned/all), assigned_to, search."""
+    if status_group and status_group != "all":
+        status = ticket.get("status") or ""
+        has_assigned = ticket.get("assigned_to") is not None
+        if status_group == "open":
+            if status in ("resolved", "auto_resolved"):
+                return False
+        elif status_group == "closed":
+            if status not in ("resolved", "auto_resolved"):
+                return False
+        elif status_group == "assigned":
+            if not has_assigned:
+                return False
+    if assigned_to:
+        if ticket.get("assigned_to") != assigned_to:
+            return False
+    if search and search.strip():
+        q = search.strip().lower()
+        text = " ".join([
+            str(ticket.get("subject") or ""),
+            str(ticket.get("message") or ""),
+            str(ticket.get("description") or ""),
+            str(ticket.get("summary") or ""),
+        ]).lower()
+        if q not in text:
+            return False
+    return True
+
+
 @router.get("")
-async def get_all_tickets(current_user: dict = Depends(require_admin_or_above)):
+async def get_all_tickets(
+    current_user: dict = Depends(require_admin_or_above),
+    status_group: Optional[str] = Query(None, description="open | closed | assigned | all"),
+    assigned_to: Optional[str] = Query(None, description="Filter by assigned user uid"),
+    search: Optional[str] = Query(None, description="Search in subject, message, summary"),
+):
     """
     Get tickets (Admin only). Super_admin sees all org tickets; support_admin sees only assigned.
-    Scoped by organization_id when user belongs to an org.
+    Optional filters: status_group (open/closed/assigned/all), assigned_to, search.
     """
     try:
         db = get_db()
@@ -369,7 +410,9 @@ async def get_all_tickets(current_user: dict = Depends(require_admin_or_above)):
             if "escalated" not in ticket_data:
                 ticket_data["escalated"] = (ticket_data.get("status") == "escalated" or
                                            ticket_data.get("status") == "needs_escalation")
-            result.append({"id": doc.id, **ticket_data})
+            item = {"id": doc.id, **ticket_data}
+            if _ticket_matches_filters(item, status_group, assigned_to, search):
+                result.append(item)
         result.sort(key=lambda x: x.get("createdAt", ""), reverse=True)
         return {"tickets": result}
     except HTTPException:

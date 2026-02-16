@@ -3,179 +3,194 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Helpdesk - Admin Dashboard</title>
+    <title>AI Helpdesk - Admin</title>
     <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="css/admin-layout.css">
 </head>
 <body>
-    <nav class="top-nav" id="top-nav">
-        <a href="index.html" class="nav-brand">AI Helpdesk</a>
-        <div class="nav-actions-visible">
-            <button id="messages-icon-btn" class="btn btn-icon messages-icon" type="button" title="Messages" aria-label="Open messages">
-                <span class="messages-icon-symbol" aria-hidden="true">💬</span>
-                <span class="notification-badge" id="header-unread-badge" style="display: none;">0</span>
-            </button>
-            <button type="button" class="nav-toggle" id="nav-toggle" aria-label="Toggle navigation" aria-expanded="false">
-                <span class="nav-toggle-bar"></span>
-                <span class="nav-toggle-bar"></span>
-                <span class="nav-toggle-bar"></span>
-            </button>
-        </div>
-        <div class="nav-menu" id="nav-menu">
-            <div class="user-info">
-                <div class="user-avatar" id="user-avatar">A</div>
-                <span id="user-email"></span>
-            </div>
-            <button id="logout-btn" class="btn btn-secondary btn-icon">Logout</button>
-        </div>
-    </nav>
-    
-    <div class="container">
-        <div class="page-header">
-            <h1>Admin Dashboard</h1>
-            <p class="subtitle">Manage knowledge base and review escalated tickets</p>
-        </div>
-        
-        <div id="error-message" class="alert alert-error" style="display: none;"></div>
-        <div id="success-message" class="alert alert-success" style="display: none;"></div>
-        
-        <div class="tabs">
-            <button class="tab-btn active" data-tab="knowledge-base">
-                Knowledge Base
-                <span class="stat-badge" id="kb-count" style="display: none;">0</span>
-            </button>
-            <button class="tab-btn" data-tab="all-tickets">
-                All Tickets
-                <span class="stat-badge" id="all-tickets-count" style="display: none;">0</span>
-                <span class="notification-badge" id="all-tickets-unread" style="display: none;">0</span>
-            </button>
-            <button class="tab-btn" data-tab="escalated-tickets">
-                Escalated Tickets
-                <span class="stat-badge" id="escalated-count" style="display: none;">0</span>
-                <span class="notification-badge" id="escalated-unread" style="display: none;">0</span>
-            </button>
-        </div>
-        
-        <!-- Knowledge Base Tab -->
-        <div id="knowledge-base-tab" class="tab-content active">
-            <div id="super-admin-section" class="card" style="display: none;">
-                <div class="card-header">
-                    <h2>Organization (Super Admin)</h2>
+    <div class="admin-app">
+        <div id="admin-overlay" class="admin-overlay" aria-hidden="true"></div>
+        <button type="button" class="admin-mobile-menu" id="admin-mobile-menu" aria-label="Open menu">☰</button>
+        <aside class="admin-sidebar" id="admin-sidebar">
+            <!-- Sidebar rendered by sidebar.js -->
+        </aside>
+        <main class="admin-main">
+            <div id="error-message" class="alert alert-error" style="display: none;"></div>
+            <div id="success-message" class="alert alert-success" style="display: none;"></div>
+
+            <!-- Dashboard page -->
+            <section class="admin-page" data-page="dashboard" id="page-dashboard">
+                <div class="admin-page-header">
+                    <h1>Dashboard</h1>
+                    <p class="subtitle">Overview of your helpdesk</p>
                 </div>
-                <div class="card-body">
-                    <div class="form-group">
-                        <label>Create support admin</label>
-                        <form id="create-support-admin-form" style="display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end;">
-                            <input type="email" id="support-admin-email" placeholder="Email" required style="min-width: 200px;">
-                            <input type="password" id="support-admin-password" placeholder="Temporary password" required minlength="6" style="min-width: 160px;">
-                            <button type="submit" class="btn btn-primary">Create support admin</button>
+                <div class="stats-grid" id="dashboard-stats">
+                    <div class="stat-card" data-filter="all">
+                        <div class="stat-icon">📋</div>
+                        <div class="stat-value" id="stat-total">0</div>
+                        <div class="stat-label">All Tickets</div>
+                    </div>
+                    <div class="stat-card" data-filter="resolved">
+                        <div class="stat-icon">✅</div>
+                        <div class="stat-value" id="stat-resolved">0</div>
+                        <div class="stat-label">Resolved</div>
+                    </div>
+                    <div class="stat-card" data-filter="escalated">
+                        <div class="stat-icon">⚠️</div>
+                        <div class="stat-value" id="stat-escalated">0</div>
+                        <div class="stat-label">Escalated</div>
+                    </div>
+                    <div class="stat-card" data-filter="in_progress">
+                        <div class="stat-icon">🔄</div>
+                        <div class="stat-value" id="stat-in-progress">0</div>
+                        <div class="stat-label">In Progress</div>
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card-header">
+                        <h2>Quick actions</h2>
+                    </div>
+                    <div class="card-body" style="display: flex; flex-wrap: wrap; gap: 12px;">
+                        <a href="#tickets" class="btn btn-primary">View all tickets</a>
+                        <a href="#knowledge-base" class="btn btn-secondary">Knowledge Base</a>
+                        <a href="#add-article" class="btn btn-secondary">Add article</a>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Tickets page -->
+            <section class="admin-page" data-page="tickets" id="page-tickets">
+                <div class="admin-page-header">
+                    <h1>Tickets</h1>
+                    <p class="subtitle">Manage and filter support tickets</p>
+                </div>
+                <div class="card">
+                    <div class="card-header" style="flex-wrap: wrap; gap: 12px;">
+                        <h2 id="tickets-list-title">All Tickets</h2>
+                        <div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
+                            <select id="status-group-filter" class="form-control-inline">
+                                <option value="all">All</option>
+                                <option value="open">Open</option>
+                                <option value="assigned">Assigned</option>
+                                <option value="closed">Closed</option>
+                            </select>
+                            <select id="assigned-to-filter" class="form-control-inline">
+                                <option value="">All assignees</option>
+                            </select>
+                            <input type="search" id="tickets-search" class="form-control-inline" placeholder="Search..." style="min-width: 160px;">
+                            <select id="status-filter">
+                                <option value="all">All Statuses</option>
+                                <option value="pending">Pending</option>
+                                <option value="in_progress">In Progress</option>
+                                <option value="resolved">Resolved</option>
+                                <option value="escalated">Escalated</option>
+                                <option value="auto_resolved">Auto-Resolved</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div id="all-tickets-list" class="tickets-list">
+                            <div class="loading">Loading tickets...</div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Knowledge Base page (list) -->
+            <section class="admin-page" data-page="knowledge-base" id="page-knowledge-base">
+                <div class="admin-page-header">
+                    <h1>Knowledge Base</h1>
+                    <p class="subtitle">Articles used by AI to resolve tickets</p>
+                </div>
+                <div class="card">
+                    <div class="card-header">
+                        <h2>Articles</h2>
+                        <span class="stat-badge" id="kb-count" style="display: none;">0</span>
+                    </div>
+                    <div class="card-body">
+                        <div id="articles-list" class="articles-list">
+                            <div class="loading">Loading articles...</div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Add Article page -->
+            <section class="admin-page" data-page="add-article" id="page-add-article">
+                <div class="admin-page-header">
+                    <h1>Add Knowledge Article</h1>
+                    <p class="subtitle">Create articles for AI resolution</p>
+                </div>
+                <div class="card">
+                    <div class="card-body">
+                        <form id="kb-form">
+                            <div class="form-group">
+                                <label for="kb-title">Article Title</label>
+                                <input type="text" id="kb-title" name="title" required placeholder="Enter article title">
+                            </div>
+                            <div class="form-group">
+                                <label for="kb-content">Article Content</label>
+                                <textarea id="kb-content" name="content" rows="10" required placeholder="Enter the article content."></textarea>
+                            </div>
+                            <button type="submit" class="btn btn-primary">Save Article</button>
                         </form>
                     </div>
-                    <div class="form-group" style="margin-top: 16px;">
-                        <label>Change organization code</label>
-                        <form id="update-org-code-form" style="display: flex; gap: 12px; align-items: center;">
-                            <input type="text" id="new-org-code" placeholder="New organization code" required style="min-width: 180px;">
-                            <button type="submit" class="btn btn-secondary">Update code</button>
+                </div>
+                <div class="card">
+                    <div class="card-header">
+                        <h2>Recent articles</h2>
+                    </div>
+                    <div class="card-body">
+                        <div id="add-article-list" class="articles-list">
+                            <div class="loading">Loading...</div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Support Admins page (super_admin only) -->
+            <section class="admin-page" data-page="support-admins" id="page-support-admins">
+                <div class="admin-page-header">
+                    <h1>Support Admins</h1>
+                    <p class="subtitle">Manage support admin accounts</p>
+                </div>
+                <div class="card">
+                    <div class="card-header">
+                        <h2>Add Support Admin</h2>
+                    </div>
+                    <div class="card-body">
+                        <form id="create-support-admin-form" class="form-inline">
+                            <input type="email" id="support-admin-email" placeholder="Email" required>
+                            <input type="password" id="support-admin-password" placeholder="Temporary password" required minlength="6">
+                            <button type="submit" class="btn btn-primary">Create</button>
                         </form>
                     </div>
                 </div>
-            </div>
-            <div class="card">
-                <div class="card-header">
-                    <h2>Add Knowledge Base Article</h2>
-                </div>
-                <div class="card-body">
-                    <form id="kb-form">
-                        <div class="form-group">
-                            <label for="kb-title">Article Title</label>
-                            <input type="text" id="kb-title" name="title" required placeholder="Enter article title">
+                <div class="card">
+                    <div class="card-header">
+                        <h2>Support admins</h2>
+                    </div>
+                    <div class="card-body">
+                        <div id="support-admins-list">
+                            <div class="loading">Loading...</div>
                         </div>
-                        
-                        <div class="form-group">
-                            <label for="kb-content">Article Content</label>
-                            <textarea id="kb-content" name="content" rows="10" required placeholder="Enter the article content. This will be used by AI to help resolve support tickets."></textarea>
-                        </div>
-                        
-                        <button type="submit" class="btn btn-primary">Save Article</button>
-                    </form>
-                </div>
-            </div>
-            
-            <div class="card">
-                <div class="card-header">
-                    <h2>Knowledge Base Articles</h2>
-                </div>
-                <div class="card-body">
-                    <div id="articles-list" class="articles-list">
-                        <div class="loading">Loading articles...</div>
                     </div>
                 </div>
-            </div>
-        </div>
-        
-        <!-- All Tickets Tab -->
-        <div id="all-tickets-tab" class="tab-content">
-            <!-- Statistics Cards -->
-            <div class="stats-grid" id="stats-grid">
-                <div class="stat-card" data-filter="all">
-                    <div class="stat-icon">📋</div>
-                    <div class="stat-value" id="stat-total">0</div>
-                    <div class="stat-label">All Tickets</div>
+            </section>
+
+            <!-- Settings page (super_admin only) -->
+            <section class="admin-page" data-page="settings" id="page-settings">
+                <div class="admin-page-header">
+                    <h1>Settings</h1>
+                    <p class="subtitle">Organization and security</p>
                 </div>
-                <div class="stat-card" data-filter="resolved">
-                    <div class="stat-icon">✅</div>
-                    <div class="stat-value" id="stat-resolved">0</div>
-                    <div class="stat-label">Resolved</div>
+                <div id="settings-content">
+                    <div class="loading">Loading settings...</div>
                 </div>
-                <div class="stat-card" data-filter="escalated">
-                    <div class="stat-icon">⚠️</div>
-                    <div class="stat-value" id="stat-escalated">0</div>
-                    <div class="stat-label">Escalated</div>
-                </div>
-                <div class="stat-card" data-filter="in_progress">
-                    <div class="stat-icon">🔄</div>
-                    <div class="stat-value" id="stat-in-progress">0</div>
-                    <div class="stat-label">In Progress</div>
-                </div>
-            </div>
-            
-            <div class="card">
-                <div class="card-header">
-                    <h2 id="tickets-list-title">All Tickets</h2>
-                    <div style="display: flex; gap: 12px; align-items: center;">
-                        <select id="status-filter" style="padding: 8px 12px; border: 1px solid var(--border-color); border-radius: var(--radius-sm); background: var(--bg-primary); color: var(--text-primary);">
-                            <option value="all">All Statuses</option>
-                            <option value="pending">Pending</option>
-                            <option value="in_progress">In Progress</option>
-                            <option value="resolved">Resolved</option>
-                            <option value="escalated">Escalated</option>
-                            <option value="auto_resolved">Auto-Resolved</option>
-                        </select>
-                    </div>
-                </div>
-                <div class="card-body">
-                    <div id="all-tickets-list" class="tickets-list">
-                        <div class="loading">Loading tickets...</div>
-                    </div>
-                </div>
-            </div>
-        </div>
-        
-        <!-- Escalated Tickets Tab -->
-        <div id="escalated-tickets-tab" class="tab-content">
-            <div class="card">
-                <div class="card-header">
-                    <h2>Escalated Tickets</h2>
-                    <span class="badge badge-warning" id="escalated-badge" style="display: none;">0 Pending</span>
-                </div>
-                <div class="card-body">
-                    <div id="escalated-tickets-list" class="tickets-list">
-                        <div class="loading">Loading tickets...</div>
-                    </div>
-                </div>
-            </div>
-        </div>
+            </section>
+        </main>
     </div>
-    
+
     <!-- Article View/Edit Modal -->
     <div id="article-modal" class="modal-overlay">
         <div class="modal">
@@ -184,7 +199,6 @@
                 <button type="button" class="modal-close modal-close-btn" data-modal="article-modal" aria-label="Close">&times;</button>
             </div>
             <div class="modal-body">
-                <!-- View Mode (Default) -->
                 <div id="article-view-mode">
                     <div class="form-group">
                         <label>Article Title</label>
@@ -199,8 +213,6 @@
                         <div id="article-view-meta" class="article-view-text" style="font-size: 12px; color: var(--text-tertiary);"></div>
                     </div>
                 </div>
-                
-                <!-- Edit Mode (Hidden by default) -->
                 <div id="article-edit-mode" style="display: none;">
                     <form id="edit-article-form">
                         <input type="hidden" id="edit-article-id">
@@ -216,12 +228,10 @@
                 </div>
             </div>
             <div class="modal-footer" id="article-modal-footer">
-                <!-- View mode buttons -->
                 <div id="article-view-buttons">
                     <button type="button" id="article-edit-btn" class="btn btn-primary">Edit</button>
                     <button type="button" class="btn btn-secondary modal-close-btn" data-modal="article-modal">Close</button>
                 </div>
-                <!-- Edit mode buttons -->
                 <div id="article-edit-buttons" style="display: none;">
                     <button type="button" id="article-cancel-edit-btn" class="btn btn-secondary">Cancel</button>
                     <button type="button" id="article-save-edit-btn" class="btn btn-primary">Save Changes</button>
@@ -229,8 +239,8 @@
             </div>
         </div>
     </div>
-    
-    <!-- Messages Dropdown Modal -->
+
+    <!-- Messages Modal -->
     <div id="messages-modal" class="modal-overlay">
         <div class="modal" style="max-width: 600px;">
             <div class="modal-header">
@@ -247,7 +257,7 @@
             </div>
         </div>
     </div>
-    
+
     <!-- Ticket Detail Modal -->
     <div id="ticket-modal" class="modal-overlay">
         <div class="modal" style="max-width: 900px;">
@@ -255,9 +265,7 @@
                 <h2 id="ticket-modal-title">Ticket Details</h2>
                 <button type="button" class="modal-close modal-close-btn" data-modal="ticket-modal" aria-label="Close">&times;</button>
             </div>
-            <div class="modal-body" id="ticket-modal-body">
-                <!-- Ticket details will be loaded here -->
-            </div>
+            <div class="modal-body" id="ticket-modal-body"></div>
             <div class="message-input-area" id="ticket-message-input" style="display: none;">
                 <form id="ticket-message-form" class="message-input-form">
                     <input type="hidden" id="current-ticket-id">
@@ -270,7 +278,7 @@
             </div>
         </div>
     </div>
-    
+
     <script src="./config.js"></script>
     <script type="module" src="./admin.js"></script>
 </body>

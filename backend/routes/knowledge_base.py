@@ -4,7 +4,7 @@ Knowledge Base routes (Admin only)
 
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from datetime import datetime
 from firebase_admin import firestore
 from middleware import require_admin_or_above, require_super_admin
@@ -21,6 +21,8 @@ class KnowledgeBaseArticle(BaseModel):
     title: str
     content: str
     category: Optional[str] = None
+    guided_flow: Optional[bool] = False
+    guided_branches: Optional[Dict[str, Any]] = None  # e.g. {"iphone": {"steps": ["...", "..."]}, "android": {"steps": [...]}}
 
 
 class KnowledgeBaseResponse(BaseModel):
@@ -56,6 +58,10 @@ async def create_article(
             "created_by_name": created_by_name,
             "createdAt": datetime.utcnow().isoformat(),
         }
+        if article.guided_flow:
+            article_data["guided_flow"] = True
+            if article.guided_branches:
+                article_data["guided_branches"] = article.guided_branches
         doc_ref = db.collection("knowledge_base").add(article_data)
         article_id = doc_ref[1].id
         return {"message": "Article created successfully", "id": article_id, **article_data}
@@ -89,6 +95,8 @@ async def get_articles(current_user: dict = Depends(require_admin_or_above)):
                 "createdAt": article_data.get("createdAt"),
                 "created_by": article_data.get("created_by"),
                 "created_by_name": article_data.get("created_by_name") or "",
+                "guided_flow": article_data.get("guided_flow", False),
+                "guided_branches": article_data.get("guided_branches"),
             })
         result.sort(key=lambda x: x.get("createdAt", ""), reverse=True)
         return {"articles": result}
@@ -125,6 +133,10 @@ async def update_article(
         }
         if article.category is not None:
             updates["category"] = (article.category or "").strip() or None
+        if hasattr(article, "guided_flow") and article.guided_flow is not None:
+            updates["guided_flow"] = article.guided_flow
+        if hasattr(article, "guided_branches") and article.guided_branches is not None:
+            updates["guided_branches"] = article.guided_branches
         article_ref.update(updates)
         return {"message": "Article updated successfully", "id": article_id, "title": article.title, "content": article.content}
     except HTTPException:

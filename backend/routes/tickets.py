@@ -33,6 +33,140 @@ class MessageRequest(BaseModel):
     sender: str  # Will be validated on backend based on user role
 
 
+# --- Guided troubleshooting: multi-step, branch selection, conversational memory ---
+
+def _try_guided_mode(user_message: str, kb_articles_full: List[dict]) -> dict:
+    """
+    If a matching article has guided_flow with multiple branches, return clarifying question.
+    kb_articles_full: list of { "id", "title", "content", "guided_flow", "guided_branches" }.
+    Returns: { "use_guided": True, "clarifying_question": str, "matched_article_id": str } or { "use_guided": False }.
+    """
+    msg_lower = (user_message or "").lower().strip()
+    if not msg_lower:
+        return {"use_guided": False}
+    for art in kb_articles_full:
+        if not art.get("guided_flow") or not art.get("guided_branches"):
+            continue
+        branches = art["guided_branches"]
+        if not isinstance(branches, dict) or len(branches) < 2:
+            continue
+        title = (art.get("title") or "").lower()
+        content = (art.get("content") or "").lower()
+        if not title and not content:
+            continue
+        if title and title in msg_lower:
+            pass
+        elif any(w in msg_lower for w in title.split() if len(w) > 2):
+            pass
+        elif any(w in content for w in msg_lower.split() if len(w) > 3):
+            pass
+        else:
+            continue
+        branch_names = list(branches.keys())
+        options = "\n".join([f"{i + 1}. {b.replace('_', ' ').title()}" for i, b in enumerate(branch_names)])
+        clarifying_question = f"I can help you with that. Which option applies to you?\n\n{options}\n\nPlease reply with the number or name."
+        return {
+            "use_guided": True,
+            "clarifying_question": clarifying_question,
+            "matched_article_id": art.get("id"),
+        }
+    return {"use_guided": False}
+
+
+def _guided_flow_respond(
+    ticket_data: dict,
+    user_message: str,
+    guided_article: dict,
+) -> tuple:
+    """
+    Compute next AI reply for guided flow. Returns (ai_reply: str, new_context: dict, resolved: bool).
+    """
+    context = dict((ticket_data.get("troubleshooting_context") or {}))
+    branch = context.get("branch")
+    step = context.get("step", 0)
+    branches = (guided_article or {}).get("guided_branches") or {}
+    if not isinstance(branches, dict):
+        return ("I'm sorry, I couldn't load the steps. Please contact support.", context, False)
+
+    msg_lower = (user_message or "").lower().strip()
+
+    # Resolved detection
+    if any(x in msg_lower for x in ("resolved", "fixed", "it works", "solved", "yes it did", "that worked", "all good")):
+        context["resolved_confirmed"] = True
+        return (
+            "Great! I've marked this ticket as resolved. If you need anything else, feel free to submit a new ticket.",
+            context,
+            True,
+        )
+
+    if not branch:
+        branch_names = list(branches.keys())
+        choice = None
+        for i, name in enumerate(branch_names):
+            if msg_lower in (str(i + 1), name.lower(), name.lower().replace(" ", "")):
+                choice = name
+                break
+        if not choice and len(msg_lower) <= 20:
+            for name in branch_names:
+                if name.lower() in msg_lower or msg_lower in name.lower():
+                    choice = name
+                    break
+        if choice:
+            context["branch"] = choice
+            context["step"] = 1
+            steps = (branches.get(choice) or {}).get("steps") if isinstance(branches.get(choice), dict) else []
+            if isinstance(branches.get(choice), list):
+                steps = branches.get(choice)
+            if not steps:
+                steps = []
+            if steps:
+                return (
+                    f"**Step 1:**\n{steps[0]}\n\nLet me know when you've completed this step.",
+                    context,
+                    False,
+                )
+            return ("You're all set for that option. Did this solve your issue?", context, False)
+        return (
+            "I didn't catch that. Please reply with the number or name of your option (e.g. 1 or iPhone).",
+            context,
+            False,
+        )
+
+    steps = (branches.get(branch) or {}).get("steps") if isinstance(branches.get(branch), dict) else []
+    if isinstance(branches.get(branch), list):
+        steps = branches.get(branch)
+    if not steps:
+        steps = []
+
+    done_keywords = ("done", "completed", "yes", "next", "finished", "ready", "did it", "completed it")
+    if any(x in msg_lower for x in done_keywords):
+        current_step = context.get("step", 1)
+        next_step = current_step + 1
+        if next_step <= len(steps):
+            context["step"] = next_step
+            reply = f"**Step {next_step}:**\n{steps[next_step - 1]}\n\nLet me know when you've completed this step."
+            return (reply, context, False)
+        else:
+            return (
+                "You've completed all the steps. Did this solve your issue? (Reply yes if it's resolved.)",
+                context,
+                False,
+            )
+
+    if step >= len(steps):
+        return (
+            "You've completed all the steps. Did this solve your issue? (Reply yes or 'it works' if resolved.)",
+            context,
+            False,
+        )
+
+    return (
+        f"**Step {step}:**\n{steps[step - 1]}\n\nLet me know when you've completed this step.",
+        context,
+        False,
+    )
+
+
 class TicketResponse(BaseModel):
     id: str
     userId: str
@@ -62,26 +196,28 @@ async def create_ticket(
         uid = current_user["uid"]
         organization_id = current_user.get("organization_id")
 
-        # Fetch knowledge base articles scoped by organization (only this org's KB for AI)
         kb_ref = db.collection("knowledge_base")
         if organization_id is not None:
-            kb_articles = kb_ref.where("organization_id", "==", organization_id).stream()
+            kb_stream = kb_ref.where("organization_id", "==", organization_id).stream()
         else:
-            kb_articles = kb_ref.stream()
+            kb_stream = kb_ref.stream()
         knowledge_base = []
-        for doc in kb_articles:
+        kb_articles_full = []
+        for doc in kb_stream:
             article_data = doc.to_dict()
             knowledge_base.append({
                 "title": article_data.get("title", ""),
                 "content": article_data.get("content", "")
             })
+            kb_articles_full.append({
+                "id": doc.id,
+                "title": article_data.get("title", ""),
+                "content": article_data.get("content", ""),
+                "guided_flow": article_data.get("guided_flow", False),
+                "guided_branches": article_data.get("guided_branches"),
+            })
 
-        kb_text = "\n\n".join([
-            f"Title: {kb['title']}\nContent: {kb['content']}"
-            for kb in knowledge_base
-        ])
-        ai_result = await analyze_ticket_with_ai(ticket.message, kb_text, knowledge_base)
-
+        guided = _try_guided_mode(ticket.message, kb_articles_full)
         messages = [
             {
                 "sender": "user",
@@ -90,36 +226,75 @@ async def create_ticket(
                 "isRead": True
             }
         ]
-        if ai_result.get("status") == "auto_resolved" and ai_result.get("aiReply"):
+
+        if guided.get("use_guided") and guided.get("clarifying_question"):
             messages.append({
                 "sender": "ai",
-                "message": ai_result.get("aiReply"),
+                "message": guided["clarifying_question"],
                 "createdAt": datetime.utcnow().isoformat(),
                 "isRead": False
             })
-
-        ticket_status = ai_result.get("status", "needs_escalation")
-        if ticket_status == "needs_escalation":
-            ticket_status = "escalated"
-        is_escalated = (ticket_status == "escalated")
-
-        summary = ai_result.get("summary", "")
-        ticket_data = {
-            "userId": uid,
-            "message": ticket.message,
-            "summary": summary,
-            "subject": summary or (ticket.message[:200] + "..." if len(ticket.message) > 200 else ticket.message),
-            "description": ticket.message,
-            "status": ticket_status,
-            "escalated": is_escalated,
-            "category": ai_result.get("category"),
-            "aiReply": ai_result.get("aiReply"),
-            "confidence": ai_result.get("confidence", 0.0),
-            "knowledge_used": ai_result.get("knowledge_used", []),
-            "internal_note": ai_result.get("internal_note", ""),
-            "messages": messages,
-            "createdAt": datetime.utcnow().isoformat()
-        }
+            summary = (ticket.message[:200] + "..." if len(ticket.message) > 200 else ticket.message)
+            ticket_data = {
+                "userId": uid,
+                "message": ticket.message,
+                "summary": summary,
+                "subject": summary,
+                "description": ticket.message,
+                "status": "in_progress",
+                "escalated": False,
+                "category": None,
+                "aiReply": None,
+                "confidence": 0.0,
+                "knowledge_used": [],
+                "internal_note": "",
+                "messages": messages,
+                "createdAt": datetime.utcnow().isoformat(),
+                "ai_mode": "guided",
+                "current_step": 0,
+                "troubleshooting_context": {},
+                "resolved": False,
+                "guided_article_id": guided.get("matched_article_id"),
+            }
+        else:
+            kb_text = "\n\n".join([
+                f"Title: {kb['title']}\nContent: {kb['content']}"
+                for kb in knowledge_base
+            ])
+            ai_result = await analyze_ticket_with_ai(ticket.message, kb_text, knowledge_base)
+            if ai_result.get("status") == "auto_resolved" and ai_result.get("aiReply"):
+                messages.append({
+                    "sender": "ai",
+                    "message": ai_result.get("aiReply"),
+                    "createdAt": datetime.utcnow().isoformat(),
+                    "isRead": False
+                })
+            ticket_status = ai_result.get("status", "needs_escalation")
+            if ticket_status == "needs_escalation":
+                ticket_status = "escalated"
+            is_escalated = (ticket_status == "escalated")
+            summary = ai_result.get("summary", "")
+            resolved = (ticket_status == "auto_resolved")
+            ticket_data = {
+                "userId": uid,
+                "message": ticket.message,
+                "summary": summary,
+                "subject": summary or (ticket.message[:200] + "..." if len(ticket.message) > 200 else ticket.message),
+                "description": ticket.message,
+                "status": ticket_status,
+                "escalated": is_escalated,
+                "category": ai_result.get("category"),
+                "aiReply": ai_result.get("aiReply"),
+                "confidence": ai_result.get("confidence", 0.0),
+                "knowledge_used": ai_result.get("knowledge_used", []),
+                "internal_note": ai_result.get("internal_note", ""),
+                "messages": messages,
+                "createdAt": datetime.utcnow().isoformat(),
+                "ai_mode": "article",
+                "current_step": 0,
+                "troubleshooting_context": {},
+                "resolved": resolved,
+            }
         if organization_id is not None:
             ticket_data["organization_id"] = organization_id
             ticket_data["created_by"] = uid
@@ -549,8 +724,48 @@ async def add_message_to_ticket(
             "isRead": is_read
         }
         messages.append(new_message)
-        ticket_ref.update({"messages": messages})
-        return {"message": "Message added successfully", "ticket_id": ticket_id, "new_message": new_message}
+
+        if (
+            message_request.sender == "user"
+            and ticket_data.get("ai_mode") == "guided"
+            and not ticket_data.get("resolved")
+        ):
+            guided_article_id = ticket_data.get("guided_article_id")
+            guided_article = None
+            if guided_article_id:
+                art_ref = db.collection("knowledge_base").document(guided_article_id)
+                art_doc = art_ref.get()
+                if art_doc.exists:
+                    guided_article = {"id": art_doc.id, **art_doc.to_dict()}
+            ai_reply, new_context, resolved = _guided_flow_respond(
+                ticket_data, message_request.message, guided_article
+            )
+            ai_message = {
+                "sender": "ai",
+                "message": ai_reply,
+                "createdAt": datetime.utcnow().isoformat(),
+                "isRead": False
+            }
+            messages.append(ai_message)
+            update_data = {
+                "messages": messages,
+                "troubleshooting_context": new_context,
+                "current_step": new_context.get("step", 0),
+            }
+            if resolved:
+                update_data["resolved"] = True
+                update_data["status"] = "resolved"
+            ticket_ref.update(update_data)
+            return {
+                "message": "Message added successfully",
+                "ticket_id": ticket_id,
+                "new_message": new_message,
+                "ai_reply": ai_message,
+                "resolved": resolved,
+            }
+        else:
+            ticket_ref.update({"messages": messages})
+            return {"message": "Message added successfully", "ticket_id": ticket_id, "new_message": new_message}
     except HTTPException:
         raise
     except Exception as e:

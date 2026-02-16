@@ -178,6 +178,20 @@ document.addEventListener('DOMContentLoaded', () => {
                 // Show response
                 responseDiv.style.display = 'block';
                 
+                if (ticket.ai_mode === 'guided') {
+                    responseContent.innerHTML = `
+                        <div class="alert alert-success">
+                            <strong>✅ Step-by-step help</strong>
+                            <p style="margin-top: 8px; margin-bottom: 0;">We'll guide you through this. Check the conversation below and reply to continue.</p>
+                        </div>
+                        <p style="margin-top: 12px; color: var(--text-secondary);">Your ticket is open. Use the conversation in the window that just opened, or find it under "My Tickets".</p>
+                    `;
+                    document.getElementById('ticket-form').reset();
+                    loadMyTickets();
+                    openTicketModal(ticket.id);
+                    return;
+                }
+                
                 if (ticket.status === 'auto_resolved') {
                     responseContent.innerHTML = `
                         <div class="alert alert-success">
@@ -498,17 +512,19 @@ async function openTicketModal(ticketId) {
             }).join('');
         }
         
+        const isGuided = ticket.ai_mode === 'guided';
         modalBody.innerHTML = `
             <div class="ticket-detail-section">
                 <h3>Status</h3>
                 <div class="badge-group">
-                    <span class="badge ${ticket.status === 'auto_resolved' ? 'badge-success' : 'badge-warning'}">${ticket.status.replace('_', ' ').toUpperCase()}</span>
+                    <span class="badge ${ticket.resolved || ticket.status === 'resolved' || ticket.status === 'auto_resolved' ? 'badge-success' : 'badge-warning'}">${(ticket.status || '').replace('_', ' ').toUpperCase()}</span>
                     ${ticket.category ? `<span class="badge badge-neutral">${ticket.category}</span>` : ''}
-                    ${ticket.confidence !== undefined ? `<span class="badge badge-info">${(ticket.confidence * 100).toFixed(1)}% Confidence</span>` : ''}
+                    ${!isGuided && ticket.confidence !== undefined ? `<span class="badge badge-info">${(ticket.confidence * 100).toFixed(1)}% Confidence</span>` : ''}
+                    ${isGuided ? '<span class="badge badge-info">Step-by-step</span>' : ''}
                 </div>
             </div>
             
-            ${ticket.summary ? `
+            ${!isGuided && ticket.summary ? `
             <div class="ticket-detail-section">
                 <h3>Summary</h3>
                 <p>${escapeHtml(ticket.summary)}</p>
@@ -517,12 +533,15 @@ async function openTicketModal(ticketId) {
             
             <div class="ticket-detail-section">
                 <h3>Conversation</h3>
-                <div class="conversation-thread">
+                <div class="conversation-thread" id="ticket-conversation-thread">
                     ${conversationHtml || '<div class="conversation-empty">No messages yet</div>'}
+                </div>
+                <div class="typing-indicator" id="ticket-typing-indicator" style="display: none;" aria-live="polite">
+                    <span class="typing-dots"></span> AI is typing...
                 </div>
             </div>
             
-            ${ticket.knowledge_used && ticket.knowledge_used.length > 0 ? `
+            ${!isGuided && ticket.knowledge_used && ticket.knowledge_used.length > 0 ? `
             <div class="ticket-detail-section">
                 <h3>Based on Knowledge Base</h3>
                 <p>${ticket.knowledge_used.join(', ')}</p>
@@ -544,11 +563,12 @@ async function openTicketModal(ticketId) {
             </div>
         `;
         
-        // Show message input for users (they can reply to admin messages)
-        messageInputArea.style.display = 'block';
+        // Show message input for users (hide when ticket is resolved)
+        const isResolved = ticket.resolved === true || ticket.status === 'resolved' || ticket.status === 'auto_resolved';
+        messageInputArea.style.display = isResolved ? 'none' : 'block';
         
         // Scroll to bottom of conversation
-        const conversationThread = modalBody.querySelector('.conversation-thread');
+        const conversationThread = modalBody.querySelector('#ticket-conversation-thread');
         if (conversationThread) {
             conversationThread.scrollTop = conversationThread.scrollHeight;
         }
@@ -577,6 +597,37 @@ function closeTicketModal() {
     if (overlay) closeModal(overlay);
 }
 
+/**
+ * Append a message bubble to the ticket conversation thread (for guided flow live updates)
+ */
+function appendMessageToTicketThread(sender, message, createdAt) {
+    const thread = document.getElementById('ticket-conversation-thread');
+    if (!thread) return;
+    const emptyEl = thread.querySelector('.conversation-empty');
+    if (emptyEl) emptyEl.remove();
+    const senderLabel = sender === 'user' ? 'You' : sender === 'admin' ? 'Admin' : 'AI Assistant';
+    const time = createdAt ? new Date(createdAt).toLocaleString() : new Date().toLocaleString();
+    const bubble = document.createElement('div');
+    bubble.className = `message-item ${sender}`;
+    bubble.innerHTML = `
+        <div class="message-sender">${senderLabel}</div>
+        <div class="message-bubble">${escapeHtml(message)}</div>
+        <div class="message-time">${time}</div>
+    `;
+    thread.appendChild(bubble);
+    thread.scrollTop = thread.scrollHeight;
+}
+
+/**
+ * Show or hide typing indicator in ticket modal
+ */
+function setTicketTypingIndicator(show) {
+    const el = document.getElementById('ticket-typing-indicator');
+    if (el) el.style.display = show ? 'block' : 'none';
+    const thread = document.getElementById('ticket-conversation-thread');
+    if (thread) thread.scrollTop = thread.scrollHeight;
+}
+
 // Ticket message form handler (user)
 document.addEventListener('DOMContentLoaded', () => {
     const messageForm = document.getElementById('ticket-message-form');
@@ -595,8 +646,16 @@ document.addEventListener('DOMContentLoaded', () => {
             submitBtn.disabled = true;
             submitBtn.textContent = 'Sending...';
             
+            const isGuided = currentUserTicketData && currentUserTicketData.ai_mode === 'guided' && !currentUserTicketData.resolved;
+            
+            if (isGuided) {
+                appendMessageToTicketThread('user', messageText, new Date().toISOString());
+                document.getElementById('ticket-message-text').value = '';
+                setTicketTypingIndicator(true);
+            }
+            
             try {
-                await apiRequest(`/tickets/${ticketId}/messages`, {
+                const data = await apiRequest(`/tickets/${ticketId}/messages`, {
                     method: 'POST',
                     body: JSON.stringify({
                         message: messageText,
@@ -604,12 +663,41 @@ document.addEventListener('DOMContentLoaded', () => {
                     })
                 });
                 
-                document.getElementById('ticket-message-text').value = '';
-                await openTicketModal(ticketId);
+                if (!isGuided) {
+                    document.getElementById('ticket-message-text').value = '';
+                }
+                
+                setTicketTypingIndicator(false);
+                
+                if (isGuided && data.ai_reply) {
+                    appendMessageToTicketThread('ai', data.ai_reply.message, data.ai_reply.createdAt);
+                    currentUserTicketData = currentUserTicketData || {};
+                    currentUserTicketData.messages = (currentUserTicketData.messages || []).concat(
+                        { sender: 'user', message: messageText, createdAt: new Date().toISOString() },
+                        data.ai_reply
+                    );
+                    currentUserTicketData.resolved = data.resolved === true || currentUserTicketData.resolved;
+                    currentUserTicketData.status = data.resolved ? 'resolved' : (currentUserTicketData.status || 'in_progress');
+                    if (data.resolved) {
+                        const messageInputArea = document.getElementById('ticket-message-input');
+                        if (messageInputArea) messageInputArea.style.display = 'none';
+                        const badgeGroup = document.querySelector('#ticket-modal-body .badge-group');
+                        if (badgeGroup) {
+                            const statusBadge = badgeGroup.querySelector('.badge');
+                            if (statusBadge) {
+                                statusBadge.textContent = 'RESOLVED';
+                                statusBadge.className = 'badge badge-success';
+                            }
+                        }
+                    }
+                } else {
+                    await openTicketModal(ticketId);
+                }
                 await loadMyTickets();
                 showSuccess('Message sent successfully!');
                 
             } catch (error) {
+                setTicketTypingIndicator(false);
                 showError(`Failed to send message: ${error.message}`);
             } finally {
                 submitBtn.disabled = false;

@@ -1387,6 +1387,24 @@ body {
     white-space: nowrap;
 }
 
+/* Typing indicator (guided flow) */
+.typing-indicator {
+    padding: 10px 16px;
+    color: var(--text-secondary);
+    font-size: 13px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.typing-dots::before {
+    content: '...';
+    animation: typingBlink 1s ease-in-out infinite;
+}
+@keyframes typingBlink {
+    0%, 100% { opacity: 0.4; }
+    50% { opacity: 1; }
+}
+
 /* Empty conversation state */
 .conversation-empty {
     text-align: center;

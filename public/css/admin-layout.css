@@ -472,3 +472,55 @@
     padding: 2px 6px;
     border-radius: 10px;
 }
+
+/* Admin tickets table — same columns as user (Title, Status, Created, Updated, Assigned Admin) */
+.admin-tickets-table-wrap {
+    overflow-x: auto;
+    border-radius: 12px;
+    border: 1px solid var(--border-color);
+}
+.admin-tickets-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+}
+.admin-tickets-table th,
+.admin-tickets-table td {
+    padding: 12px 14px;
+    text-align: left;
+    border-bottom: 1px solid var(--border-color);
+}
+.admin-tickets-table th {
+    font-weight: 600;
+    color: var(--text-secondary);
+    background: var(--bg-tertiary);
+}
+.admin-tickets-table tbody tr:last-child td {
+    border-bottom: none;
+}
+.admin-ticket-row {
+    cursor: pointer;
+    transition: background 0.15s ease;
+}
+.admin-ticket-row:hover {
+    background: rgba(99, 102, 241, 0.06);
+}
+.admin-ticket-link {
+    color: var(--text-primary);
+    font-weight: 500;
+    text-decoration: none;
+}
+.admin-ticket-link:hover {
+    text-decoration: underline;
+}
+.admin-ticket-badge {
+    display: inline-block;
+    padding: 4px 10px;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 500;
+}
+.admin-ticket-status-escalated { background: #fef2f2; color: #b91c1c; }
+.admin-ticket-status-in-progress { background: #fff7ed; color: #c2410c; }
+.admin-ticket-status-closed { background: #f0fdf4; color: #166534; }
+.admin-ticket-status-open { background: var(--bg-tertiary); color: var(--text-secondary); }

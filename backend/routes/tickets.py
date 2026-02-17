@@ -33,6 +33,20 @@ def get_db():
     """Lazy initialization of Firestore client"""
     return firestore.client()
 
+
+def _user_display_name(db, uid: Optional[str]) -> Optional[str]:
+    """Return full_name or email for a user by uid; None if uid is None or user not found."""
+    if not uid:
+        return None
+    try:
+        user_doc = db.collection("users").document(uid).get()
+        if not user_doc.exists:
+            return None
+        d = user_doc.to_dict()
+        return (d.get("full_name") or d.get("name") or d.get("email") or "").strip() or None
+    except Exception:
+        return None
+
 # Initialize OpenAI client
 openai_client = OpenAI(api_key=OPENAI_API_KEY)
 
@@ -999,6 +1013,9 @@ async def get_all_tickets(
             if "escalated" not in ticket_data:
                 ticket_data["escalated"] = (ticket_data.get("status") == "escalated" or
                                            ticket_data.get("status") == "needs_escalation")
+            at = ticket_data.get("assigned_to")
+            if at:
+                ticket_data["assigned_to_name"] = _user_display_name(db, at)
             item = {"id": doc.id, **ticket_data}
             if _ticket_matches_filters(item, status_group, filter_assigned_to, search):
                 result.append(item)
@@ -1032,8 +1049,10 @@ async def get_my_tickets(current_user: dict = Depends(get_current_user)):
             if "escalated" not in ticket_data:
                 ticket_data["escalated"] = (ticket_data.get("status") == "escalated" or
                                            ticket_data.get("status") == "needs_escalation")
-            # Users must NOT see ai_internal_summary (admin-only)
             ticket_data.pop("ai_internal_summary", None)
+            at = ticket_data.get("assigned_to")
+            if at:
+                ticket_data["assigned_to_name"] = _user_display_name(db, at)
             result.append({"id": doc.id, **ticket_data})
         result.sort(key=lambda x: x.get("createdAt", ""), reverse=True)
         return {"tickets": result}
@@ -1074,6 +1093,9 @@ async def get_escalated_tickets(current_user: dict = Depends(require_admin_or_ab
         for doc in base_escalated.stream():
             ticket_data = doc.to_dict()
             ticket_data["escalated"] = True
+            at = ticket_data.get("assigned_to")
+            if at:
+                ticket_data["assigned_to_name"] = _user_display_name(db, at)
             ticket_ids.add(doc.id)
             result.append({"id": doc.id, **ticket_data})
         for doc in base_s1.stream():
@@ -1081,6 +1103,9 @@ async def get_escalated_tickets(current_user: dict = Depends(require_admin_or_ab
                 ticket_data = doc.to_dict()
                 if "escalated" not in ticket_data:
                     ticket_data["escalated"] = True
+                at = ticket_data.get("assigned_to")
+                if at:
+                    ticket_data["assigned_to_name"] = _user_display_name(db, at)
                 result.append({"id": doc.id, **ticket_data})
                 ticket_ids.add(doc.id)
         for doc in base_s2.stream():
@@ -1088,6 +1113,9 @@ async def get_escalated_tickets(current_user: dict = Depends(require_admin_or_ab
                 ticket_data = doc.to_dict()
                 if "escalated" not in ticket_data:
                     ticket_data["escalated"] = True
+                at = ticket_data.get("assigned_to")
+                if at:
+                    ticket_data["assigned_to_name"] = _user_display_name(db, at)
                 result.append({"id": doc.id, **ticket_data})
         result.sort(key=lambda x: x.get("createdAt", ""), reverse=True)
         return {"tickets": result}
@@ -1136,6 +1164,9 @@ async def get_ticket_by_id(
             ticket_data.get("status") == "escalated" or ticket_data.get("status") == "needs_escalation"
         )
     ticket_data.pop("ai_internal_summary", None)
+    assigned_to = ticket_data.get("assigned_to")
+    if assigned_to:
+        ticket_data["assigned_to_name"] = _user_display_name(db, assigned_to) or None
     return {"id": doc.id, **ticket_data}
 
 

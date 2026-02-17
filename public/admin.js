@@ -896,41 +896,59 @@ async function loadAllTickets() {
             return new Date(b.createdAt) - new Date(a.createdAt);
         });
         
-        ticketsList.innerHTML = tickets.map(ticket => {
-            const unreadCount = ticket.unreadCount || 0;
-            const statusDot = getTicketStatusDot(ticket);
-            const title = (ticket.summary || ticket.message || "No subject").trim();
-            const titleShort = title.length > 60 ? title.substring(0, 60) + "…" : title;
-            const orgName = ticket.organization_name || "—";
-            const userName = ticket.created_by_name || "Customer";
-            const assignedLabel = ticket.assigned_to_name || (ticket.assigned_to ? "Assigned" : "Unassigned");
-            const msgs = ticket.messages || [];
-            const lastMsg = msgs.length > 0 ? msgs[msgs.length - 1] : null;
-            const lastMsgText = lastMsg ? (lastMsg.text || lastMsg.content || "").trim() : (ticket.message || "").trim();
-            const lastMsgShort = lastMsgText.length > 50 ? lastMsgText.substring(0, 50) + "…" : lastMsgText || "—";
-            const lastTime = lastMsg && (lastMsg.created_at || lastMsg.createdAt) ? (lastMsg.created_at || lastMsg.createdAt) : ticket.createdAt;
-            const timeAgo = lastTime ? timeAgoStr(lastTime) : "—";
-            return `
-            <div class="ticket-list-row ticket-card status-${ticket.status}" data-ticket-id="${ticket.id}">
-                <span class="ticket-row-dot ${statusDot}"></span>
-                <div class="ticket-row-main">
-                    <div class="ticket-row-line1">
-                        <span class="ticket-row-title">${escapeHtml(titleShort)}</span>
-                        <span class="ticket-row-org">${escapeHtml(orgName)}</span>
-                    </div>
-                    <div class="ticket-row-line2">
-                        <span class="ticket-row-user">${escapeHtml(userName)}</span>
-                        <span class="ticket-row-assigned">${escapeHtml(assignedLabel)}</span>
-                    </div>
-                    <div class="ticket-row-line3">
-                        <span class="ticket-row-preview">${escapeHtml(lastMsgShort)}</span>
-                        <span class="ticket-row-time">${timeAgo}</span>
-                    </div>
-                </div>
-                ${unreadCount > 0 ? `<span class="ticket-row-unread">${unreadCount > 99 ? "99+" : unreadCount}</span>` : ""}
+        const statusBadgeClass = (t) => {
+            if (t.escalated === true) return "admin-ticket-status-escalated";
+            if (t.status === "closed" || t.status === "resolved" || t.status === "auto_resolved") return "admin-ticket-status-closed";
+            if (t.status === "in_progress" || t.status === "awaiting_confirmation") return "admin-ticket-status-in-progress";
+            return "admin-ticket-status-open";
+        };
+        const statusLabel = (t) => {
+            if (t.escalated === true) return "Escalated";
+            return (t.status || "Open").replace(/_/g, " ");
+        };
+        const lastUpdated = (t) => {
+            const msgs = t.messages || [];
+            if (msgs.length > 0) {
+                const last = msgs[msgs.length - 1];
+                const ts = last.createdAt || last.created_at;
+                if (ts) return new Date(ts).toLocaleString();
+            }
+            return t.updatedAt ? new Date(t.updatedAt).toLocaleString() : new Date(t.createdAt).toLocaleString();
+        };
+        ticketsList.innerHTML = `
+            <div class="admin-tickets-table-wrap">
+                <table class="admin-tickets-table">
+                    <thead>
+                        <tr>
+                            <th>Ticket Title</th>
+                            <th>Status</th>
+                            <th>Created</th>
+                            <th>Last Updated</th>
+                            <th>Assigned Admin</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${tickets.map(ticket => {
+                            const unreadCount = ticket.unreadCount || 0;
+                            const title = (ticket.summary || ticket.message || "No subject").trim();
+                            const titleShort = title.length > 60 ? title.substring(0, 60) + "…" : title;
+                            const assignedName = ticket.assigned_to_name || (ticket.assigned_to ? "Assigned" : "—");
+                            return `
+                            <tr class="ticket-list-row ticket-card admin-ticket-row" data-ticket-id="${ticket.id}" role="button" tabindex="0">
+                                <td>
+                                    <a href="ticket-detail.html?id=${encodeURIComponent(ticket.id)}" class="admin-ticket-link">${escapeHtml(titleShort)}</a>
+                                    ${unreadCount > 0 ? `<span class="ticket-row-unread">${unreadCount > 99 ? "99+" : unreadCount}</span>` : ""}
+                                </td>
+                                <td><span class="admin-ticket-badge ${statusBadgeClass(ticket)}">${statusLabel(ticket)}</span></td>
+                                <td>${new Date(ticket.createdAt).toLocaleDateString()}</td>
+                                <td>${lastUpdated(ticket)}</td>
+                                <td>${escapeHtml(assignedName)}</td>
+                            </tr>`;
+                        }).join("")}
+                    </tbody>
+                </table>
             </div>
         `;
-        }).join('');
         
     } catch (error) {
         ticketsList.innerHTML = `<p class="error-message">Error loading tickets: ${error.message}</p>`;

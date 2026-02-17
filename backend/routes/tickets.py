@@ -1476,6 +1476,9 @@ async def update_ticket_status(
         current_escalated = ticket_data.get("escalated", False)
         if new_status == "escalated":
             current_escalated = True
+        elif new_status in ("closed", "resolved", "awaiting_confirmation", "auto_resolved"):
+            # When an escalated ticket is closed, clear escalated so it leaves the escalated list and shows as Closed
+            current_escalated = False
 
         # Support flow: Admin marks resolved (mode=human) → awaiting_confirmation + support sends confirmation
         update_data = {

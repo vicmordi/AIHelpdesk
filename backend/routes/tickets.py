@@ -1097,6 +1097,48 @@ async def get_escalated_tickets(current_user: dict = Depends(require_admin_or_ab
         raise HTTPException(status_code=500, detail=f"Error fetching escalated tickets: {str(e)}")
 
 
+@router.get("/{ticket_id}")
+async def get_ticket_by_id(
+    ticket_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Get a single ticket by id. Role-based access:
+    - Employee: own tickets only (userId == current user).
+    - Support_admin: tickets assigned to them only.
+    - Super_admin: any ticket in org (or all if no org).
+    """
+    db = get_db()
+    uid = current_user["uid"]
+    role = current_user.get("role")
+    organization_id = current_user.get("organization_id")
+    is_admin = role in ("super_admin", "support_admin")
+
+    ticket_ref = db.collection("tickets").document(ticket_id)
+    doc = ticket_ref.get()
+    if not doc.exists:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    ticket_data = doc.to_dict()
+    ticket_org_id = ticket_data.get("organization_id")
+    ticket_user_id = ticket_data.get("userId")
+    assigned_to = ticket_data.get("assigned_to")
+
+    if organization_id is not None and ticket_org_id != organization_id:
+        raise HTTPException(status_code=403, detail="Ticket not in your organization")
+    if not is_admin:
+        if ticket_user_id != uid:
+            raise HTTPException(status_code=403, detail="You can only view your own tickets")
+    elif role == "support_admin" and assigned_to != uid:
+        raise HTTPException(status_code=403, detail="You can only view tickets assigned to you")
+
+    if "escalated" not in ticket_data:
+        ticket_data["escalated"] = (
+            ticket_data.get("status") == "escalated" or ticket_data.get("status") == "needs_escalation"
+        )
+    ticket_data.pop("ai_internal_summary", None)
+    return {"id": doc.id, **ticket_data}
+
+
 @router.post("/{ticket_id}/messages")
 async def add_message_to_ticket(
     ticket_id: str,

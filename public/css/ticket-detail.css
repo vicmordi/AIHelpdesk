@@ -68,6 +68,33 @@
 .ticket-detail-badge.status-in-progress { background: #fff7ed; color: #c2410c; }
 .ticket-detail-badge.status-open { background: var(--bg-tertiary); color: var(--text-secondary); }
 
+.ticket-detail-admin-controls {
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border-color);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    align-items: flex-end;
+}
+.ticket-detail-status-control,
+.ticket-detail-assign-control {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.ticket-detail-admin-controls label {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-secondary);
+}
+.ticket-detail-admin-controls select {
+    padding: 6px 10px;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    font-size: 14px;
+}
+
 .ticket-detail-tabs {
     display: flex;
     gap: 4px;

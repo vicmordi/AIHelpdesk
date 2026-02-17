@@ -474,9 +474,9 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('article-cancel-edit-btn')?.addEventListener('click', cancelEditMode);
     document.getElementById('article-save-edit-btn')?.addEventListener('click', saveArticleEdit);
     
-    // Ticket lists: delegation for ticket card click (open modal)
+    // Ticket lists: click navigates to unified ticket detail page
     document.getElementById('all-tickets-list')?.addEventListener('click', (e) => {
-        const card = e.target.closest('.ticket-card[data-ticket-id]');
+        const card = e.target.closest('.ticket-card[data-ticket-id], .ticket-list-row[data-ticket-id]');
         if (card) openTicketModal(card.dataset.ticketId);
     });
     document.getElementById('escalated-tickets-list')?.addEventListener('click', (e) => {
@@ -488,19 +488,6 @@ document.addEventListener('DOMContentLoaded', () => {
         if (card) openTicketFromMessages(card.dataset.ticketId);
     });
     
-    // Ticket modal body: delegation for Update status and Assign (dynamic content)
-    document.getElementById('ticket-modal')?.addEventListener('click', (e) => {
-        const updateBtn = e.target.closest('[data-action="update-ticket-status"]');
-        if (updateBtn && updateBtn.dataset.ticketId) {
-            updateTicketStatus(updateBtn.dataset.ticketId);
-            return;
-        }
-        const assignBtn = e.target.closest('[data-action="assign-ticket"]');
-        if (assignBtn && assignBtn.dataset.ticketId) {
-            assignTicket(assignBtn.dataset.ticketId);
-        }
-    });
-    
     // Logout handler
     const logoutBtn = document.getElementById("logout-btn");
     if (logoutBtn) {
@@ -510,51 +497,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
     
-    // Ticket message form handler (admin)
-    const messageForm = document.getElementById('ticket-message-form');
-    if (messageForm) {
-        messageForm.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            
-            const ticketId = document.getElementById('current-ticket-id').value;
-            const messageText = document.getElementById('ticket-message-text').value.trim();
-            const submitBtn = e.target.querySelector('button[type="submit"]');
-            
-            if (!messageText) {
-                return;
-            }
-            
-            // Disable button
-            submitBtn.disabled = true;
-            submitBtn.textContent = 'Sending...';
-            
-            try {
-                await apiRequest(`/tickets/${ticketId}/messages`, {
-                    method: 'POST',
-                    body: JSON.stringify({
-                        message: messageText,
-                        sender: 'admin'
-                    })
-                });
-                
-                // Clear input
-                document.getElementById('ticket-message-text').value = '';
-                
-        // Reload ticket to show new message
-        await openTicketModal(ticketId);
-        
-        await loadAllTickets();
-        showSuccess('Message sent successfully!');
-                
-            } catch (error) {
-                showError(`Failed to send message: ${error.message}`);
-            } finally {
-                submitBtn.disabled = false;
-                submitBtn.textContent = 'Send';
-            }
-        });
-    }
-    
+    // Ticket chat is on unified ticket-detail.html (no modal form here)
     // Modal "click outside" is handled by body delegation (e.target.classList.contains('modal-overlay'))
 });
 
@@ -1518,246 +1461,9 @@ async function saveArticleEdit() {
     }
 }
 
-// Store current ticket data for messaging
-let currentTicketData = null;
-
-/**
- * Open ticket detail modal with conversation thread
- */
-async function openTicketModal(ticketId) {
-    const modal = document.getElementById('ticket-modal');
-    const modalBody = document.getElementById('ticket-modal-body');
-    const modalTitle = document.getElementById('ticket-modal-title');
-    const messageInputArea = document.getElementById('ticket-message-input');
-    
-    modalTitle.textContent = 'Loading ticket details...';
-    modalBody.innerHTML = '<div class="loading">Loading...</div>';
-    messageInputArea.style.display = 'none';
-    modal.classList.add('active');
-    
-    try {
-        // Get all tickets to find the one we need
-        const data = await apiRequest('/tickets');
-        const tickets = data.tickets || [];
-        const ticket = tickets.find(t => t.id === ticketId);
-        
-        if (!ticket) {
-            modalBody.innerHTML = '<p class="error-message">Ticket not found</p>';
-            return;
-        }
-        
-        // Store ticket data for messaging
-        currentTicketData = ticket;
-        document.getElementById('current-ticket-id').value = ticketId;
-        
-        modalTitle.textContent = `Ticket #${ticket.id.substring(0, 8)}`;
-        
-        // Build conversation thread
-        const messages = ticket.messages || [];
-        
-        // If no messages array exists, create one from legacy fields
-        let conversationHtml = '';
-        if (messages.length === 0) {
-            // Legacy: Create messages from original ticket structure
-            const userLabel = (ticket.created_by_name || "Customer") + " (User)";
-            conversationHtml = `
-                <div class="message-item user">
-                    <div class="message-sender">${userLabel}</div>
-                    <div class="message-bubble">${escapeHtml(ticket.message)}</div>
-                    <div class="message-time">${new Date(ticket.createdAt).toLocaleString()}</div>
-                </div>
-            `;
-            if (ticket.aiReply) {
-                conversationHtml += `
-                    <div class="message-item ai">
-                        <div class="message-sender">AI Assistant</div>
-                        <div class="message-bubble">${escapeHtml(ticket.aiReply)}</div>
-                        <div class="message-time">${new Date(ticket.createdAt).toLocaleString()}</div>
-                    </div>
-                `;
-            }
-        } else {
-            // Display conversation thread
-            conversationHtml = messages.map(msg => {
-                const senderLabel = getSenderLabel(msg, ticket, true);
-                return `
-                    <div class="message-item ${msg.sender}">
-                        <div class="message-sender">${senderLabel}</div>
-                        <div class="message-bubble">${escapeHtml(msg.message)}</div>
-                        <div class="message-time">${new Date(msg.createdAt).toLocaleString()}</div>
-                    </div>
-                `;
-            }).join('');
-        }
-        
-        modalBody.innerHTML = `
-            <div class="ticket-detail-section">
-                <h3>Status & Category</h3>
-                <div class="badge-group">
-                    <span class="badge ${ticket.status === 'closed' || ticket.status === 'resolved' || ticket.status === 'auto_resolved' ? 'badge-success' : 
-                                   ticket.status === 'ai_responded' || ticket.status === 'in_progress' || ticket.status === 'awaiting_confirmation' ? 'badge-info' :
-                                   ticket.status === 'escalated' ? 'badge-warning' : 'badge-neutral'}">${ticket.status.replace('_', ' ').toUpperCase()}</span>
-                    ${ticket.category ? `<span class="badge badge-neutral">${ticket.category}</span>` : ''}
-                    ${ticket.confidence !== undefined ? `<span class="badge badge-info">${(ticket.confidence * 100).toFixed(1)}% Confidence</span>` : ''}
-                </div>
-                <div class="status-controls">
-                    <div class="status-select-group">
-                        <label for="ticket-status-select">Update Status:</label>
-                        <select id="ticket-status-select">
-                            <option value="open" ${ticket.status === 'open' ? 'selected' : ''}>Open</option>
-                            <option value="ai_responded" ${ticket.status === 'ai_responded' ? 'selected' : ''}>AI Responded</option>
-                            <option value="escalated" ${ticket.status === 'escalated' ? 'selected' : ''}>Escalated</option>
-                            <option value="in_progress" ${ticket.status === 'in_progress' ? 'selected' : ''}>In Progress</option>
-                            <option value="awaiting_confirmation" ${ticket.status === 'awaiting_confirmation' ? 'selected' : ''}>Awaiting Confirmation</option>
-                            <option value="closed" ${ticket.status === 'closed' ? 'selected' : ''}>Closed</option>
-                            <option value="resolved" ${ticket.status === 'resolved' ? 'selected' : ''}>Resolved</option>
-                        </select>
-                        <button type="button" class="btn btn-primary btn-sm" data-action="update-ticket-status" data-ticket-id="${ticketId}">Update</button>
-                    </div>
-                    ${currentUser?.role === 'super_admin' ? `
-                    <div class="assign-controls" style="margin-top: 12px;">
-                        <label for="ticket-assign-select">Assign to:</label>
-                        <select id="ticket-assign-select">
-                            <option value="">Unassigned</option>
-                        </select>
-                        <button type="button" class="btn btn-primary btn-sm" data-action="assign-ticket" data-ticket-id="${ticketId}">Assign</button>
-                    </div>
-                    ` : ''}
-                </div>
-            </div>
-            
-            ${ticket.summary ? `
-            <div class="ticket-detail-section">
-                <h3>Summary</h3>
-                <p>${escapeHtml(ticket.summary)}</p>
-            </div>
-            ` : ''}
-            
-            <div class="ticket-detail-section">
-                <h3>Conversation</h3>
-                <div class="conversation-thread">
-                    ${conversationHtml || '<div class="conversation-empty">No messages yet</div>'}
-                </div>
-            </div>
-            
-            ${ticket.knowledge_used && ticket.knowledge_used.length > 0 ? `
-            <div class="ticket-detail-section">
-                <h3>Knowledge Base Articles Used</h3>
-                <p>${ticket.knowledge_used.join(', ')}</p>
-            </div>
-            ` : ''}
-            
-            ${ticket.internal_note ? `
-            <div class="ticket-detail-section">
-                <h3>Internal Note</h3>
-                <div class="internal-note">
-                    <p>${escapeHtml(ticket.internal_note)}</p>
-                </div>
-            </div>
-            ` : ''}
-            ${ticket.ai_internal_summary ? `
-            <div class="ticket-detail-section">
-                <h3>AI Escalation Summary</h3>
-                <div class="internal-note" style="white-space: pre-wrap; font-family: monospace; font-size: 12px; background: var(--bg-secondary); padding: 12px; border-radius: 8px;">${escapeHtml(ticket.ai_internal_summary)}</div>
-            </div>
-            ` : ''}
-            
-            <div class="ticket-detail-section">
-                <h3>Ticket Information</h3>
-                <p><strong>User ID:</strong> ${ticket.userId || 'Unknown'}</p>
-                <p><strong>Created:</strong> ${new Date(ticket.createdAt).toLocaleString()}</p>
-            </div>
-        `;
-        
-        // Show message input for admins
-        messageInputArea.style.display = 'block';
-
-        // Populate assign dropdown for super_admin
-        const assignSelect = document.getElementById('ticket-assign-select');
-        if (assignSelect && currentUser?.role === 'super_admin') {
-            try {
-                const memData = await apiRequest('/organization/members');
-                const members = (memData.members || []).filter((m) => m.role === 'support_admin' || m.role === 'super_admin');
-                assignSelect.innerHTML = '<option value="">Unassigned</option>' + members.map((m) => `<option value="${m.uid}" ${ticket.assigned_to === m.uid ? 'selected' : ''}>${escapeHtml(m.email)}</option>`).join('');
-            } catch (_) {
-                assignSelect.innerHTML = '<option value="">Unassigned</option>';
-            }
-        }
-        
-        // Scroll to bottom of conversation
-        const conversationThread = modalBody.querySelector('.conversation-thread');
-        if (conversationThread) {
-            conversationThread.scrollTop = conversationThread.scrollHeight;
-        }
-        
-        // Mark messages as read when viewing (recipient-aware)
-        try {
-            await apiRequest(`/messages/mark-read/${ticketId}`, { method: "POST" });
-            fetchUnreadCount();
-            await loadAllTickets();
-            loadEscalatedTickets();
-        } catch (error) {
-            console.error('Error marking messages as read:', error);
-        }
-        
-    } catch (error) {
-        modalBody.innerHTML = `<p class="error-message">Error loading ticket: ${error.message}</p>`;
-    }
-}
-
-/**
- * Update ticket status (Admin only)
- */
-async function updateTicketStatus(ticketId) {
-    const statusSelect = document.getElementById('ticket-status-select');
-    const newStatus = statusSelect.value;
-    
-    if (!newStatus) {
-        showError('Please select a status');
-        return;
-    }
-    
-    try {
-        await apiRequest(`/tickets/${ticketId}/status`, {
-            method: 'PUT',
-            body: JSON.stringify({ status: newStatus })
-        });
-        
-        showSuccess('Ticket status updated successfully!');
-        
-        await openTicketModal(ticketId);
-        loadAllTickets();
-    } catch (error) {
-        showError(`Failed to update status: ${error.message}`);
-    }
-}
-
-/**
- * Assign ticket to user (super_admin only)
- */
-async function assignTicket(ticketId) {
-    const assignSelect = document.getElementById('ticket-assign-select');
-    if (!assignSelect) return;
-    const uid = assignSelect.value || null;
-    try {
-        await apiRequest(`/tickets/${ticketId}/assign`, {
-            method: 'PUT',
-            body: JSON.stringify({ assigned_to: uid })
-        });
-        showSuccess(uid ? 'Ticket assigned.' : 'Ticket unassigned.');
-        await openTicketModal(ticketId);
-        loadAllTickets();
-    } catch (error) {
-        showError(error.message || 'Failed to assign');
-    }
-}
-
-/**
- * Close ticket detail modal
- */
-function closeTicketModal() {
-    const overlay = document.getElementById('ticket-modal');
-    if (overlay) closeModal(overlay);
+/** Navigate to unified ticket detail page (same view for all roles) */
+function openTicketModal(ticketId) {
+    window.location.href = 'ticket-detail.html?id=' + encodeURIComponent(ticketId);
 }
 
 function escapeHtml(text) {

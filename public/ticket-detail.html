@@ -9,7 +9,7 @@
 </head>
 <body class="ticket-detail-page">
     <nav class="top-nav ticket-detail-nav">
-        <a href="submit-ticket.html" class="nav-brand">← Back to My Tickets</a>
+        <a id="ticket-detail-back" href="submit-ticket.html" class="nav-brand">← Back to My Tickets</a>
         <div class="nav-actions-visible">
             <span id="user-email" class="nav-email"></span>
             <button type="button" class="btn btn-secondary btn-sm" id="logout-btn">Logout</button>
@@ -26,6 +26,27 @@
                     <span id="ticket-detail-status" class="ticket-detail-badge"></span>
                     <span id="ticket-detail-created"></span>
                     <span id="ticket-detail-assigned"></span>
+                </div>
+                <div id="ticket-detail-admin-controls" class="ticket-detail-admin-controls" style="display: none;">
+                    <div class="ticket-detail-status-control">
+                        <label for="ticket-status-select">Status</label>
+                        <select id="ticket-status-select">
+                            <option value="open">Open</option>
+                            <option value="in_progress">In Progress</option>
+                            <option value="escalated">Escalated</option>
+                            <option value="awaiting_confirmation">Awaiting Confirmation</option>
+                            <option value="closed">Closed</option>
+                            <option value="resolved">Resolved</option>
+                        </select>
+                        <button type="button" id="ticket-status-update-btn" class="btn btn-primary btn-sm">Update</button>
+                    </div>
+                    <div id="ticket-detail-assign-wrap" class="ticket-detail-assign-control" style="display: none;">
+                        <label for="ticket-assign-select">Assign to</label>
+                        <select id="ticket-assign-select">
+                            <option value="">Unassigned</option>
+                        </select>
+                        <button type="button" id="ticket-assign-btn" class="btn btn-primary btn-sm">Assign</button>
+                    </div>
                 </div>
             </header>
 

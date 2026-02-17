@@ -391,11 +391,12 @@
 }
 .dashboard-quick-actions .card-body { padding: 12px 18px; }
 
-/* Tickets list — compact Zendesk-style rows (admin) */
+/* Tickets list — compact table (admin): same as user side */
 #all-tickets-list.tickets-list {
-    display: flex;
-    flex-direction: column;
-    gap: 0;
+    display: block;
+}
+#all-tickets-list .admin-tickets-table-wrap {
+    display: block;
 }
 .ticket-list-row.ticket-card {
     display: flex;

@@ -474,18 +474,31 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('article-cancel-edit-btn')?.addEventListener('click', cancelEditMode);
     document.getElementById('article-save-edit-btn')?.addEventListener('click', saveArticleEdit);
     
-    // Ticket lists: click navigates to unified ticket detail page
+    // Ticket lists: click anywhere on row navigates to ticket detail page (same as employee)
     document.getElementById('all-tickets-list')?.addEventListener('click', (e) => {
-        const card = e.target.closest('.ticket-card[data-ticket-id], .ticket-list-row[data-ticket-id]');
-        if (card) openTicketModal(card.dataset.ticketId);
+        const row = e.target.closest('tr[data-ticket-id], .ticket-card[data-ticket-id], .ticket-list-row[data-ticket-id]');
+        if (row && row.dataset.ticketId) {
+            e.preventDefault();
+            e.stopPropagation();
+            window.location.href = 'ticket-detail.html?id=' + encodeURIComponent(row.dataset.ticketId);
+        }
     });
     document.getElementById('escalated-tickets-list')?.addEventListener('click', (e) => {
-        const card = e.target.closest('.ticket-card[data-ticket-id]');
-        if (card) openTicketModal(card.dataset.ticketId);
+        const row = e.target.closest('tr[data-ticket-id], .ticket-card[data-ticket-id]');
+        if (row && row.dataset.ticketId) {
+            e.preventDefault();
+            e.stopPropagation();
+            window.location.href = 'ticket-detail.html?id=' + encodeURIComponent(row.dataset.ticketId);
+        }
     });
     document.getElementById('messages-tickets-list')?.addEventListener('click', (e) => {
-        const card = e.target.closest('.ticket-card[data-ticket-id]');
-        if (card) openTicketFromMessages(card.dataset.ticketId);
+        const row = e.target.closest('tr[data-ticket-id], .ticket-card[data-ticket-id]');
+        if (row && row.dataset.ticketId) {
+            e.preventDefault();
+            e.stopPropagation();
+            closeMessagesModal();
+            window.location.href = 'ticket-detail.html?id=' + encodeURIComponent(row.dataset.ticketId);
+        }
     });
     
     // Logout handler

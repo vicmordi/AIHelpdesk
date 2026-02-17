@@ -1,0 +1,401 @@
+/**
+ * Responsive Layout — Production-ready mobile-first design
+ * Breakpoints: 576px, 768px, 992px, 1200px
+ * Zendesk/Intercom-style helpdesk UX
+ */
+
+/* =====================================================
+   1. GLOBAL RESPONSIVE STRUCTURE
+   ===================================================== */
+
+/* Prevent horizontal scroll globally */
+html, body {
+    overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
+}
+
+/* Prevent page jump when mobile keyboard opens — fix viewport */
+@supports (padding-bottom: env(safe-area-inset-bottom)) {
+    .ticket-detail-page {
+        min-height: 100dvh;
+    }
+}
+
+/* Tappable targets — min 44px touch target for accessibility */
+@media (max-width: 992px) {
+    .btn:not(.btn-sm), .tab-btn, .sidebar-link, .stat-card,
+    .admin-ticket-row, .user-ticket-row,
+    .ticket-card, .article-card {
+        min-height: 44px;
+    }
+    .btn-sm { min-height: 40px; }
+}
+
+/* =====================================================
+   2. ADMIN LAYOUT — Sidebar & Main
+   ===================================================== */
+
+/* Desktop (min-width: 992px) — fixed sidebar always visible */
+@media (min-width: 992px) {
+    .admin-app {
+        display: flex;
+        min-height: 100vh;
+    }
+    .admin-sidebar {
+        position: fixed;
+        left: 0;
+        top: 0;
+        bottom: 0;
+        width: 260px;
+        transform: none !important;
+        transition: transform 0.3s ease;
+    }
+    .admin-main {
+        margin-left: 260px;
+        flex: 1;
+        min-width: 0;
+    }
+    .admin-mobile-menu { display: none !important; }
+    .admin-overlay { display: none !important; }
+}
+
+/* Tablet / Mobile (max-width: 991px) — sidebar as drawer */
+@media (max-width: 991px) {
+    .admin-sidebar {
+        position: fixed;
+        left: 0;
+        top: 0;
+        bottom: 0;
+        width: 280px;
+        max-width: 85vw;
+        transform: translateX(-100%);
+        transition: transform 0.3s ease;
+        z-index: 300;
+        box-shadow: 4px 0 24px rgba(0, 0, 0, 0.15);
+    }
+    .admin-sidebar.sidebar-open,
+    .admin-app.sidebar-open .admin-sidebar {
+        transform: translateX(0);
+    }
+    .admin-overlay {
+        display: none;
+        position: fixed;
+        inset: 0;
+        background: rgba(15, 23, 42, 0.5);
+        z-index: 250;
+        opacity: 0;
+        transition: opacity 0.3s ease;
+    }
+    .admin-overlay.visible {
+        display: block;
+        opacity: 1;
+    }
+    body.sidebar-open {
+        overflow: hidden;
+    }
+    .admin-main {
+        margin-left: 0;
+        width: 100%;
+        padding: 16px;
+        padding-top: 72px;
+    }
+    .admin-mobile-menu {
+        display: flex !important;
+        position: fixed;
+        top: 16px;
+        left: 16px;
+        z-index: 200;
+        width: 44px;
+        height: 44px;
+        min-width: 44px;
+        min-height: 44px;
+        border-radius: 12px;
+        background: #fff;
+        border: 1px solid var(--border-color, #e2e8f0);
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+        align-items: center;
+        justify-content: center;
+        font-size: 20px;
+        cursor: pointer;
+        padding: 0;
+    }
+}
+
+/* =====================================================
+   3. TICKETS LIST — Mobile Card Layout
+   ===================================================== */
+
+/* Desktop: table layout */
+@media (min-width: 768px) {
+    .admin-tickets-table-wrap,
+    .user-tickets-table-wrap {
+        display: block;
+        overflow-x: auto;
+    }
+    .admin-tickets-table,
+    .user-tickets-table {
+        display: table;
+    }
+}
+
+/* Mobile: stacked cards (no table, no horizontal scroll) */
+@media (max-width: 767px) {
+    .admin-tickets-table-wrap,
+    .user-tickets-table-wrap {
+        overflow: visible;
+        border: none;
+        background: transparent;
+    }
+    .admin-tickets-table,
+    .user-tickets-table {
+        display: block;
+        border: none;
+    }
+    .admin-tickets-table thead,
+    .user-tickets-table thead {
+        display: none;
+    }
+    .admin-tickets-table tbody,
+    .user-tickets-table tbody {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+    }
+    .admin-tickets-table tbody tr,
+    .admin-tickets-table .admin-ticket-row,
+    .user-tickets-table tbody tr,
+    .user-tickets-table .user-ticket-row {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        padding: 16px;
+        background: var(--bg-secondary, #fff);
+        border: 1px solid var(--border-color, #e2e8f0);
+        border-radius: 12px;
+        cursor: pointer;
+        transition: box-shadow 0.2s, border-color 0.2s;
+    }
+    .admin-tickets-table tbody tr:hover,
+    .admin-tickets-table .admin-ticket-row:hover,
+    .user-tickets-table tbody tr:hover,
+    .user-tickets-table .user-ticket-row:hover {
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+        border-color: var(--primary-color, #0d9488);
+    }
+    .admin-tickets-table td,
+    .user-tickets-table td {
+        display: block;
+        padding: 0;
+        border: none;
+    }
+    .admin-tickets-table td:first-child,
+    .user-tickets-table td:first-child {
+        order: 1;
+        font-weight: 600;
+        font-size: 15px;
+    }
+    .admin-tickets-table td:nth-child(2),
+    .user-tickets-table td:nth-child(2) {
+        order: 2;
+    }
+    .admin-tickets-table td:nth-child(3),
+    .user-tickets-table td:nth-child(3) { order: 4; }
+    .admin-tickets-table td:nth-child(4),
+    .user-tickets-table td:nth-child(4) { order: 5; }
+    .admin-tickets-table td:nth-child(5),
+    .user-tickets-table td:nth-child(5) { order: 3; }
+    .admin-tickets-table .admin-ticket-link,
+    .user-tickets-table .user-ticket-title {
+        font-size: 15px;
+        word-break: break-word;
+    }
+}
+
+/* Ticket filters mobile */
+@media (max-width: 767px) {
+    .admin-page .card-header,
+    .card-header {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 12px;
+    }
+    .admin-page .card-header > div,
+    #tickets-list-title + div {
+        flex-direction: column;
+    }
+    .form-control-inline,
+    #tickets-search,
+    #status-filter,
+    #status-group-filter {
+        min-width: 0;
+        width: 100%;
+    }
+}
+
+/* =====================================================
+   4. TICKET DETAIL VIEW — Mobile
+   ===================================================== */
+
+@media (max-width: 767px) {
+    .ticket-detail-page .top-nav {
+        padding: 0 16px;
+        height: 56px;
+    }
+    .ticket-detail-nav .nav-brand {
+        font-size: 15px;
+        padding-left: 0;
+    }
+    .ticket-detail-nav .nav-brand::before,
+    .ticket-detail-nav .nav-brand::after { display: none; }
+    .ticket-detail-main {
+        padding: 16px;
+        max-width: 100%;
+    }
+    .ticket-detail-title {
+        font-size: 18px;
+    }
+    .ticket-detail-meta {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+    }
+    .ticket-detail-admin-controls {
+        width: 100%;
+    }
+    .ticket-detail-status-control,
+    .ticket-detail-assign-control {
+        max-width: 100%;
+    }
+    .ticket-detail-tabs {
+        flex-wrap: wrap;
+    }
+    .ticket-tab {
+        min-height: 44px;
+        flex: 1;
+        min-width: 100px;
+    }
+}
+
+/* Chat tab — WhatsApp-style on mobile */
+@media (max-width: 767px) {
+    #ticket-tab-chat {
+        display: flex;
+        flex-direction: column;
+        min-height: calc(100vh - 280px);
+        position: relative;
+    }
+    .ticket-chat-thread {
+        flex: 1;
+        min-height: 200px;
+        max-height: none;
+        padding: 12px 0 80px;
+        -webkit-overflow-scrolling: touch;
+    }
+    .ticket-chat-bubble {
+        max-width: 92%;
+        padding: 12px 16px;
+    }
+    .ticket-chat-input-wrap {
+        position: sticky;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        background: var(--bg-secondary, #fff);
+        padding: 12px 16px;
+        padding-bottom: max(12px, env(safe-area-inset-bottom));
+        border-top: 1px solid var(--border-color, #e2e8f0);
+        flex-shrink: 0;
+    }
+    .ticket-chat-form {
+        display: flex;
+        gap: 10px;
+        align-items: flex-end;
+    }
+    .ticket-chat-form textarea {
+        flex: 1;
+        min-height: 44px;
+        max-height: 120px;
+    }
+    .ticket-chat-form .btn {
+        flex-shrink: 0;
+        min-height: 44px;
+        min-width: 60px;
+    }
+}
+
+/* =====================================================
+   5. DASHBOARD — Mobile
+   ===================================================== */
+
+@media (max-width: 991px) {
+    .dashboard-charts {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 576px) {
+    .dashboard-summary-cards.stats-grid,
+    .stats-grid {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 12px;
+    }
+    .stat-card,
+    .stat-card-sm {
+        padding: 14px 12px;
+    }
+    .stat-value { font-size: 22px; }
+    .stat-label { font-size: 11px; }
+    .dashboard-chart-card .card-body {
+        min-height: 200px;
+    }
+}
+
+/* =====================================================
+   6. SUBMIT-TICKET (Employee) — Mobile
+   ===================================================== */
+
+@media (max-width: 768px) {
+    .container {
+        padding: 16px;
+    }
+    .page-header h1 {
+        font-size: 22px;
+    }
+}
+
+@media (max-width: 576px) {
+    .stats-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+/* =====================================================
+   7. MODALS — Mobile
+   ===================================================== */
+
+@media (max-width: 576px) {
+    .modal-overlay {
+        padding: 12px;
+        align-items: flex-end;
+    }
+    .modal {
+        max-height: 90vh;
+        border-radius: 16px 16px 0 0;
+    }
+    .modal-header, .modal-body, .modal-footer {
+        padding: 16px;
+    }
+}
+
+/* =====================================================
+   8. GENERAL — No overflow, clean typography
+   ===================================================== */
+
+@media (max-width: 768px) {
+    .admin-page-header h1 {
+        font-size: 22px;
+    }
+    .card-body {
+        padding: 16px;
+    }
+}

@@ -355,10 +355,38 @@ async function loadSettingsPage() {
 
         const mobileMenu = document.getElementById("admin-mobile-menu");
         const overlay = document.getElementById("admin-overlay");
-        if (mobileMenu && sidebarEl) {
-            mobileMenu.addEventListener("click", () => sidebarEl.classList.toggle("open"));
-            overlay?.addEventListener("click", () => sidebarEl.classList.remove("open"));
+        const adminApp = document.getElementById("admin-app");
+        function closeSidebar() {
+            sidebarEl?.classList.remove("sidebar-open");
+            adminApp?.classList.remove("sidebar-open");
+            overlay?.classList.remove("visible");
+            overlay?.setAttribute("aria-hidden", "true");
+            document.body.classList.remove("sidebar-open");
         }
+        function openSidebar() {
+            sidebarEl?.classList.add("sidebar-open");
+            adminApp?.classList.add("sidebar-open");
+            overlay?.classList.add("visible");
+            overlay?.setAttribute("aria-hidden", "false");
+            document.body.classList.add("sidebar-open");
+        }
+        function toggleSidebar() {
+            if (sidebarEl?.classList.contains("sidebar-open")) closeSidebar();
+            else openSidebar();
+        }
+        if (mobileMenu && sidebarEl) {
+            mobileMenu.addEventListener("click", () => {
+                toggleSidebar();
+                const open = sidebarEl.classList.contains("sidebar-open");
+                mobileMenu.setAttribute("aria-expanded", String(open));
+            });
+            overlay?.addEventListener("click", closeSidebar);
+            closeSidebar();
+        }
+        sidebarEl?.addEventListener("click", (e) => {
+            if (e.target.closest(".sidebar-link") && window.innerWidth < 992) closeSidebar();
+        });
+        window.addEventListener("hashchange", closeSidebar);
 
         const hash = (window.location.hash || "#dashboard").replace("#", "") || "dashboard";
         const pagePart = hash.split("/")[0];

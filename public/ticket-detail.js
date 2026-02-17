@@ -245,6 +245,10 @@ function setupChatForm(ticket) {
             if ((input.value || "").trim()) form.requestSubmit();
         }
     });
+    input.addEventListener("input", () => {
+        input.style.height = "auto";
+        input.style.height = Math.min(input.scrollHeight, 120) + "px";
+    });
 
     form.addEventListener("submit", async (e) => {
         e.preventDefault();

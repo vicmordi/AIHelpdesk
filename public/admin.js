@@ -6,6 +6,18 @@ import { renderSidebar } from "./js/sidebar.js";
 
 let currentUser = null;
 
+/** Build display label for a message sender (admin view: Customer/Name (Role); user view: You/Name (Role)) */
+function getSenderLabel(msg, ticket, isAdminView) {
+    if (!msg) return "";
+    if (msg.sender === "user") return isAdminView ? (msg.sender_name || ticket?.created_by_name || "Customer") + " (User)" : "You";
+    if (msg.sender === "admin") {
+        const name = msg.sender_name || "Admin";
+        const role = msg.sender_role === "super_admin" ? "Super Admin" : msg.sender_role === "support_admin" ? "Support" : "";
+        return role ? `${name} (${role})` : name;
+    }
+    return "AI Assistant";
+}
+
 function showPage(pageId) {
     document.querySelectorAll(".admin-page").forEach((el) => {
         el.classList.toggle("active", el.getAttribute("data-page") === pageId);
@@ -32,6 +44,12 @@ function showPage(pageId) {
 }
 
 function loadDashboardStats() {
+    const welcomeEl = document.getElementById("dashboard-welcome");
+    if (welcomeEl && currentUser) {
+        const first = currentUser.first_name || currentUser.name?.split(" ")[0] || currentUser.email?.split("@")[0] || "there";
+        const roleLabel = currentUser.role === "super_admin" ? "Super Admin" : currentUser.role === "support_admin" ? "Support Admin" : "User";
+        welcomeEl.innerHTML = `Welcome, ${escapeHtml(first)} 👋 <span class="badge badge-neutral" style="margin-left: 8px;">${roleLabel}</span>`;
+    }
     apiRequest("/tickets").then((data) => {
         const tickets = data.tickets || [];
         const stats = {
@@ -45,6 +63,12 @@ function loadDashboardStats() {
 }
 
 async function loadAssignableMembers() {
+    const wrap = document.getElementById("assigned-to-filter-wrap");
+    if (currentUser?.role !== "super_admin") {
+        if (wrap) wrap.style.display = "none";
+        return;
+    }
+    if (wrap) wrap.style.display = "";
     const sel = document.getElementById("assigned-to-filter");
     if (!sel) return;
     try {
@@ -774,7 +798,7 @@ async function loadAllTickets() {
     if (!ticketsList) return;
 
     const statusGroup = document.getElementById('status-group-filter')?.value || '';
-    const assignedTo = document.getElementById('assigned-to-filter')?.value || '';
+    const assignedTo = (currentUser?.role === 'super_admin' ? document.getElementById('assigned-to-filter')?.value : null) || '';
     const search = document.getElementById('tickets-search')?.value?.trim() || '';
     const statusFilter = document.getElementById('status-filter')?.value || 'all';
     const params = new URLSearchParams();
@@ -1039,8 +1063,7 @@ async function openMessagesModal() {
             // Get message preview (last message text)
             const messagePreview = lastMessage ? escapeHtml(lastMessage.message) : '';
             const previewText = messagePreview.length > 100 ? messagePreview.substring(0, 100) + '...' : messagePreview;
-            const senderLabel = lastMessage && lastMessage.sender === 'user' ? 'Customer' : 
-                               lastMessage && lastMessage.sender === 'admin' ? 'You' : 'AI Assistant';
+            const senderLabel = lastMessage ? getSenderLabel(lastMessage, ticket, true) : '';
             
             return `
             <div class="ticket-card status-${ticket.status}" data-ticket-id="${ticket.id}">
@@ -1324,9 +1347,10 @@ async function openTicketModal(ticketId) {
         let conversationHtml = '';
         if (messages.length === 0) {
             // Legacy: Create messages from original ticket structure
+            const userLabel = (ticket.created_by_name || "Customer") + " (User)";
             conversationHtml = `
                 <div class="message-item user">
-                    <div class="message-sender">Customer</div>
+                    <div class="message-sender">${userLabel}</div>
                     <div class="message-bubble">${escapeHtml(ticket.message)}</div>
                     <div class="message-time">${new Date(ticket.createdAt).toLocaleString()}</div>
                 </div>
@@ -1343,8 +1367,7 @@ async function openTicketModal(ticketId) {
         } else {
             // Display conversation thread
             conversationHtml = messages.map(msg => {
-                const senderLabel = msg.sender === 'user' ? 'Customer' : 
-                                   msg.sender === 'admin' ? 'Admin' : 'AI Assistant';
+                const senderLabel = getSenderLabel(msg, ticket, true);
                 return `
                     <div class="message-item ${msg.sender}">
                         <div class="message-sender">${senderLabel}</div>

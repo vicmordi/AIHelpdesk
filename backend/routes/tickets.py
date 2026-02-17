@@ -454,8 +454,22 @@ async def create_ticket(
                 })
 
         now_iso = datetime.utcnow().isoformat()
+        # Resolve user name for chat identity
+        user_doc = db.collection("users").document(uid).get()
+        user_name = "Customer"
+        if user_doc.exists:
+            d = user_doc.to_dict() or {}
+            user_name = d.get("full_name") or d.get("email") or "Customer"
         messages = [
-            {"sender": "user", "message": ticket.message, "createdAt": now_iso, "isRead": True}
+            {
+                "sender": "user",
+                "message": ticket.message,
+                "createdAt": now_iso,
+                "isRead": True,
+                "sender_id": uid,
+                "sender_name": user_name,
+                "sender_role": "user",
+            }
         ]
         ticket_data = None
 
@@ -480,6 +494,7 @@ async def create_ticket(
                 summary = (ticket.message[:200] + "..." if len(ticket.message) > 200 else ticket.message)
                 ticket_data = {
                     "userId": uid,
+                    "created_by_name": user_name,
                     "message": ticket.message,
                     "summary": summary,
                     "subject": summary,
@@ -513,6 +528,7 @@ async def create_ticket(
                 log_flow_event("article_selection", article_id=best_article.get("id"), title=best_article.get("title"))
                 ticket_data = {
                     "userId": uid,
+                    "created_by_name": user_name,
                     "message": ticket.message,
                     "summary": summary_short,
                     "subject": summary_short,
@@ -544,6 +560,7 @@ async def create_ticket(
             summary_fallback = (ticket.message[:200] + "..." if len(ticket.message) > 200 else ticket.message)
             ticket_data = {
                 "userId": uid,
+                "created_by_name": user_name,
                 "message": ticket.message,
                 "summary": summary_fallback,
                 "subject": summary_fallback,
@@ -569,6 +586,7 @@ async def create_ticket(
             summary_fallback = (ticket.message[:200] + "..." if len(ticket.message) > 200 else ticket.message)
             ticket_data = {
                 "userId": uid,
+                "created_by_name": user_name,
                 "message": ticket.message,
                 "summary": summary_fallback,
                 "subject": summary_fallback,
@@ -873,6 +891,9 @@ async def get_all_tickets(
         else:
             tickets = tickets_ref.stream()
 
+        # Support admin: ignore assigned_to param - they only see their own tickets
+        filter_assigned_to = None if role == "support_admin" else assigned_to
+
         result = []
         for doc in tickets:
             ticket_data = doc.to_dict()
@@ -880,7 +901,7 @@ async def get_all_tickets(
                 ticket_data["escalated"] = (ticket_data.get("status") == "escalated" or
                                            ticket_data.get("status") == "needs_escalation")
             item = {"id": doc.id, **ticket_data}
-            if _ticket_matches_filters(item, status_group, assigned_to, search):
+            if _ticket_matches_filters(item, status_group, filter_assigned_to, search):
                 result.append(item)
         result.sort(key=lambda x: x.get("createdAt", ""), reverse=True)
         return {"tickets": result}
@@ -1009,6 +1030,10 @@ async def add_message_to_ticket(
         if is_admin and message_request.sender != "admin":
             raise HTTPException(status_code=400, detail="Admins must send messages as 'admin'")
 
+        # Support admin: can only message tickets assigned to them
+        if role == "support_admin" and ticket_data.get("assigned_to") != uid:
+            raise HTTPException(status_code=403, detail="You can only send messages on tickets assigned to you")
+
         messages = ticket_data.get("messages", [])
         is_read = (message_request.sender == "user")
         new_message = {
@@ -1017,6 +1042,10 @@ async def add_message_to_ticket(
             "createdAt": datetime.utcnow().isoformat(),
             "isRead": is_read
         }
+        if is_admin:
+            new_message["sender_id"] = uid
+            new_message["sender_name"] = current_user.get("name") or current_user.get("email") or "Admin"
+            new_message["sender_role"] = role
         messages.append(new_message)
 
         # Support flow: first admin reply when ESCALATED → status IN_PROGRESS
@@ -1209,11 +1238,16 @@ async def update_ticket_status(
         if new_status == "resolved" and ticket_data.get("mode") == "human":
             update_data["status"] = "awaiting_confirmation"
             messages = list(ticket_data.get("messages") or [])
+            uid = current_user["uid"]
+            role = current_user.get("role") or "support_admin"
             messages.append({
                 "sender": "admin",
                 "message": SUPPORT_CONFIRMATION_MSG,
                 "createdAt": datetime.utcnow().isoformat(),
                 "isRead": False,
+                "sender_id": uid,
+                "sender_name": current_user.get("name") or current_user.get("email") or "Support",
+                "sender_role": role,
             })
             update_data["messages"] = messages
         ticket_ref.update(update_data)

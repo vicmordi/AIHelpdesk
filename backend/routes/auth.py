@@ -245,7 +245,10 @@ async def me(current_user: dict = Depends(get_current_user)):
         "uid": current_user["uid"],
         "email": current_user["email"],
         "role": current_user["role"],
+        "name": current_user.get("name") or current_user.get("email"),
+        "first_name": current_user.get("first_name") or "User",
         "organization_id": current_user.get("organization_id"),
+        "organization": current_user.get("organization_id"),
         "must_change_password": current_user.get("must_change_password", False),
     }
 

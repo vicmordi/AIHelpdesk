@@ -33,8 +33,10 @@ export function renderSidebar(container, options = {}) {
         return active;
     }
 
-    const email = currentUser.email || "";
-    const initial = email ? email.charAt(0).toUpperCase() : "A";
+    const firstName = currentUser.first_name || currentUser.name?.split(" ")[0] || currentUser.email?.split("@")[0] || "";
+    const displayName = firstName || currentUser.email || "";
+    const initial = displayName ? displayName.charAt(0).toUpperCase() : "A";
+    const roleLabel = role === "super_admin" ? "Super Admin" : role === "support_admin" ? "Support Admin" : "";
 
     container.innerHTML = `
         <div class="sidebar-brand">
@@ -52,7 +54,7 @@ export function renderSidebar(container, options = {}) {
         <div class="sidebar-footer">
             <div class="sidebar-user">
                 <div class="sidebar-user-avatar">${initial}</div>
-                <span class="sidebar-user-email">${email}</span>
+                <span class="sidebar-user-email">${displayName}${roleLabel ? ` • ${roleLabel}` : ""}</span>
             </div>
             <a class="sidebar-link" href="#" data-page="logout" data-nav style="margin-top: 8px;">
                 <span class="sidebar-link-icon">🚪</span>

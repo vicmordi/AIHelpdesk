@@ -22,7 +22,7 @@
             <section class="admin-page" data-page="dashboard" id="page-dashboard">
                 <div class="admin-page-header">
                     <h1>Dashboard</h1>
-                    <p class="subtitle">Overview of your helpdesk</p>
+                    <p class="subtitle" id="dashboard-welcome">Overview of your helpdesk</p>
                 </div>
                 <div class="stats-grid" id="dashboard-stats">
                     <div class="stat-card" data-filter="all">
@@ -74,9 +74,11 @@
                                 <option value="assigned">Assigned</option>
                                 <option value="closed">Closed</option>
                             </select>
-                            <select id="assigned-to-filter" class="form-control-inline">
-                                <option value="">All assignees</option>
-                            </select>
+                            <span id="assigned-to-filter-wrap" style="display: none;">
+                                <select id="assigned-to-filter" class="form-control-inline">
+                                    <option value="">All assignees</option>
+                                </select>
+                            </span>
                             <input type="search" id="tickets-search" class="form-control-inline" placeholder="Search..." style="min-width: 160px;">
                             <select id="status-filter">
                                 <option value="all">All Statuses</option>

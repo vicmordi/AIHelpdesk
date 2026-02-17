@@ -5,6 +5,18 @@ import { apiRequest, clearToken, isAuthenticated } from "./api.js";
 
 let currentUser = null;
 
+/** Build display label for a message sender (user view: You / Name (Role)) */
+function getSenderLabel(msg, ticket, isAdminView) {
+    if (!msg) return "";
+    if (msg.sender === "user") return isAdminView ? (msg.sender_name || ticket?.created_by_name || "Customer") + " (User)" : "You";
+    if (msg.sender === "admin") {
+        const name = msg.sender_name || "Admin";
+        const role = msg.sender_role === "super_admin" ? "Super Admin" : msg.sender_role === "support_admin" ? "Support" : "";
+        return role ? `${name} (${role})` : name;
+    }
+    return "AI Assistant";
+}
+
 // Check authentication (token-based)
 (async function initAuth() {
     if (!isAuthenticated()) {
@@ -13,7 +25,8 @@ let currentUser = null;
     }
     try {
         const userData = await apiRequest("/auth/me");
-        if (userData.role === "admin") {
+        const adminRoles = ["admin", "super_admin", "support_admin"];
+        if (adminRoles.includes(userData.role || "")) {
             window.location.href = "admin.html";
             return;
         }
@@ -494,8 +507,7 @@ async function openTicketModal(ticketId) {
         } else {
             // Display conversation thread
             conversationHtml = messages.map(msg => {
-                const senderLabel = msg.sender === 'user' ? 'You' : 
-                                   msg.sender === 'admin' ? 'Admin' : 'AI Assistant';
+                const senderLabel = getSenderLabel(msg, ticket, false);
                 return `
                     <div class="message-item ${msg.sender}">
                         <div class="message-sender">${senderLabel}</div>
@@ -600,12 +612,13 @@ function closeTicketModal() {
 /**
  * Append a message bubble to the ticket conversation thread (for guided flow live updates)
  */
-function appendMessageToTicketThread(sender, message, createdAt) {
+function appendMessageToTicketThread(sender, message, createdAt, senderName, senderRole) {
     const thread = document.getElementById('ticket-conversation-thread');
     if (!thread) return;
     const emptyEl = thread.querySelector('.conversation-empty');
     if (emptyEl) emptyEl.remove();
-    const senderLabel = sender === 'user' ? 'You' : sender === 'admin' ? 'Admin' : 'AI Assistant';
+    const msg = { sender, sender_name: senderName, sender_role: senderRole };
+    const senderLabel = getSenderLabel(msg, null, false);
     const time = createdAt ? new Date(createdAt).toLocaleString() : new Date().toLocaleString();
     const bubble = document.createElement('div');
     bubble.className = `message-item ${sender}`;
@@ -934,8 +947,7 @@ async function openMessagesModal() {
             // Get message preview (last message text)
             const messagePreview = lastMessage ? escapeHtml(lastMessage.message) : '';
             const previewText = messagePreview.length > 100 ? messagePreview.substring(0, 100) + '...' : messagePreview;
-            const senderLabel = lastMessage && lastMessage.sender === 'user' ? 'You' : 
-                               lastMessage && lastMessage.sender === 'admin' ? 'Admin' : 'AI Assistant';
+            const senderLabel = lastMessage ? getSenderLabel(lastMessage, ticket, false) : '';
             
             return `
             <div class="ticket-card status-${ticket.status}" data-ticket-id="${ticket.id}">

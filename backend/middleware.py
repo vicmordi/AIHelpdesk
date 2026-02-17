@@ -39,7 +39,7 @@ async def verify_token(authorization: Optional[str] = Header(None)) -> dict:
 async def get_current_user(decoded_token: dict = Depends(verify_token)) -> dict:
     """
     Load current user document from Firestore. Returns user dict with uid, email, role,
-    organization_id, must_change_password. Used by all protected routes.
+    name, first_name, organization_id, must_change_password. Used by all protected routes.
     """
     uid = decoded_token.get("uid")
     if not uid:
@@ -56,15 +56,31 @@ async def get_current_user(decoded_token: dict = Depends(verify_token)) -> dict:
     role = user_data.get("role", "employee")
     if role == "admin":
         role = "super_admin"
+    full_name = user_data.get("full_name") or user_data.get("name") or ""
+    email = decoded_token.get("email") or user_data.get("email") or ""
+    first_name = (full_name.split()[0] if full_name.strip() else (email.split("@")[0] if email else "")).strip()
     return {
         "uid": uid,
-        "email": decoded_token.get("email") or user_data.get("email"),
+        "email": email,
         "role": role,
+        "name": full_name or email,
+        "first_name": first_name or "User",
         "organization_id": user_data.get("organization_id"),
         "must_change_password": user_data.get("must_change_password", False),
         "created_at": user_data.get("created_at"),
         "last_login": user_data.get("last_login"),
     }
+
+
+def require_role(roles: list):
+    """Reusable dependency: allow only specified roles. Roles are lowercase."""
+    def wrapper(current_user: dict = Depends(get_current_user)):
+        role = (current_user.get("role") or "").lower()
+        allowed = [r.lower() for r in roles]
+        if role not in allowed:
+            raise HTTPException(status_code=403, detail="Access denied")
+        return current_user
+    return wrapper
 
 
 def require_super_admin(current_user: dict = Depends(get_current_user)) -> dict:

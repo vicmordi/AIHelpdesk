@@ -391,14 +391,28 @@
 }
 .dashboard-quick-actions .card-body { padding: 12px 18px; }
 
-/* Tickets list — compact table (admin): same as user side */
+/* Tickets list — tabular layout (admin): same as employee My Tickets table */
 #all-tickets-list.tickets-list {
     display: block;
 }
 #all-tickets-list .admin-tickets-table-wrap {
     display: block;
 }
-.ticket-list-row.ticket-card {
+/* Keep table rows as table layout (do not use .ticket-card flex styles inside table) */
+.admin-tickets-table tbody tr,
+.admin-tickets-table tr.ticket-list-row,
+.admin-tickets-table tr.admin-ticket-row {
+    display: table-row;
+    padding: 0;
+    margin: 0;
+    border: none;
+    gap: 0;
+}
+.admin-tickets-table tbody tr::before {
+    display: none;
+}
+/* Card-style row only when NOT inside the admin table (e.g. escalated list as cards) */
+.ticket-list-row.ticket-card:not(.admin-ticket-row) {
     display: flex;
     align-items: flex-start;
     gap: 12px;
@@ -411,10 +425,10 @@
     transition: background 0.15s ease;
     text-align: left;
 }
-.ticket-list-row.ticket-card:hover {
+.ticket-list-row.ticket-card:not(.admin-ticket-row):hover {
     background: rgba(99, 102, 241, 0.06);
 }
-.ticket-list-row.ticket-card::before {
+.ticket-list-row.ticket-card:not(.admin-ticket-row)::before {
     display: none;
 }
 .ticket-row-dot {
@@ -479,31 +493,41 @@
     overflow-x: auto;
     border-radius: 12px;
     border: 1px solid var(--border-color);
+    background: var(--bg-secondary);
 }
 .admin-tickets-table {
     width: 100%;
     border-collapse: collapse;
     font-size: 14px;
+    table-layout: auto;
 }
 .admin-tickets-table th,
 .admin-tickets-table td {
     padding: 12px 14px;
     text-align: left;
     border-bottom: 1px solid var(--border-color);
+    vertical-align: middle;
 }
 .admin-tickets-table th {
     font-weight: 600;
     color: var(--text-secondary);
     background: var(--bg-tertiary);
+    white-space: nowrap;
 }
 .admin-tickets-table tbody tr:last-child td {
     border-bottom: none;
 }
-.admin-ticket-row {
+.admin-tickets-table .admin-ticket-row {
     cursor: pointer;
     transition: background 0.15s ease;
 }
-.admin-ticket-row:hover {
+.admin-tickets-table .admin-ticket-row:hover {
+    background: rgba(99, 102, 241, 0.06);
+}
+.admin-tickets-table .admin-ticket-row td {
+    background: inherit;
+}
+.admin-tickets-table .admin-ticket-row:hover td {
     background: rgba(99, 102, 241, 0.06);
 }
 .admin-ticket-link {

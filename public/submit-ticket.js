@@ -78,7 +78,7 @@ function playNewMessageSound() {
 async function fetchUnreadCount() {
     try {
         const data = await apiRequest("/messages/unread-count");
-        const count = data.unread_count || 0;
+        const count = data.unread_count ?? data.unread_messages ?? 0;
         const headerBadge = document.getElementById("header-unread-badge");
         const tabBadge = document.getElementById("unread-badge");
         if (headerBadge) {
@@ -432,42 +432,71 @@ window.loadMyTickets = async function() {
             return;
         }
         
-        ticketsList.innerHTML = filteredTickets.map(ticket => {
-            const unreadCount = ticket.unreadCount || 0;
-            const statusClass = ticket.status === 'closed' || ticket.status === 'resolved' || ticket.status === 'auto_resolved' ? 'badge-success' : 
-                               ticket.status === 'ai_responded' ? 'badge-info' :
-                               ticket.status === 'in_progress' || ticket.status === 'awaiting_confirmation' ? 'badge-info' :
-                               ticket.status === 'escalated' ? 'badge-warning' :
-                               ticket.status === 'open' ? 'badge-neutral' : 'badge-neutral';
-            
-            return `
-            <div class="ticket-card status-${ticket.status}" data-ticket-id="${ticket.id}">
-                <div class="ticket-header">
-                    <div style="flex: 1;">
-                        <div style="display: flex; align-items: center; gap: 8px;">
-                            <div class="ticket-id">Ticket #${ticket.id.substring(0, 8)}</div>
-                            ${unreadCount > 0 ? `<span class="notification-badge">${unreadCount > 99 ? '99+' : unreadCount}</span>` : ''}
-                        </div>
-                        <div style="display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap;">
-                            <span class="badge ${statusClass}">${ticket.status.replace('_', ' ').toUpperCase()}</span>
-                            ${ticket.category ? `<span class="badge badge-neutral">${ticket.category}</span>` : ''}
-                        </div>
-                    </div>
-                </div>
-                ${ticket.summary ? `<div class="ticket-summary">${escapeHtml(ticket.summary)}</div>` : ''}
-                <div class="ticket-message">
-                    <strong>Your Message:</strong><br>
-                    ${escapeHtml(ticket.message.length > 150 ? ticket.message.substring(0, 150) + '...' : ticket.message)}
-                </div>
-                <div class="ticket-meta">
-                    <div class="ticket-meta-item">
-                        <span>📅</span>
-                        <span>${new Date(ticket.createdAt).toLocaleString()}</span>
-                    </div>
-                </div>
+        const statusBadgeClass = (t) => {
+            if (t.escalated === true) return 'user-ticket-status-escalated';
+            if (t.status === 'closed' || t.status === 'resolved' || t.status === 'auto_resolved') return 'user-ticket-status-closed';
+            if (t.status === 'in_progress' || t.status === 'awaiting_confirmation') return 'user-ticket-status-in-progress';
+            return 'user-ticket-status-open';
+        };
+        const statusLabel = (t) => {
+            if (t.escalated === true) return 'Escalated';
+            return (t.status || 'Open').replace(/_/g, ' ');
+        };
+        const lastUpdated = (t) => {
+            const msgs = t.messages || [];
+            if (msgs.length > 0) {
+                const last = msgs[msgs.length - 1];
+                const ts = last.createdAt || last.created_at;
+                if (ts) return new Date(ts).toLocaleString();
+            }
+            return t.updatedAt ? new Date(t.updatedAt).toLocaleString() : new Date(t.createdAt).toLocaleString();
+        };
+        ticketsList.innerHTML = `
+            <div class="user-tickets-table-wrap">
+                <table class="user-tickets-table">
+                    <thead>
+                        <tr>
+                            <th>Ticket Title</th>
+                            <th>Status</th>
+                            <th>Created</th>
+                            <th>Last Updated</th>
+                            <th>Assigned Admin</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${filteredTickets.map(ticket => {
+                            const unreadCount = ticket.unreadCount || 0;
+                            const title = (ticket.summary || ticket.message || 'No subject').trim();
+                            const titleShort = title.length > 50 ? title.substring(0, 50) + '…' : title;
+                            const assigned = ticket.assigned_to_name || (ticket.assigned_to ? 'Assigned' : '—');
+                            return `
+                            <tr class="user-ticket-row" data-ticket-id="${ticket.id}" role="button" tabindex="0">
+                                <td>
+                                    <span class="user-ticket-title">${escapeHtml(titleShort)}</span>
+                                    ${unreadCount > 0 ? `<span class="user-ticket-unread">${unreadCount > 99 ? '99+' : unreadCount}</span>` : ''}
+                                </td>
+                                <td><span class="user-ticket-badge ${statusBadgeClass(ticket)}">${statusLabel(ticket)}</span></td>
+                                <td>${new Date(ticket.createdAt).toLocaleDateString()}</td>
+                                <td>${lastUpdated(ticket)}</td>
+                                <td>${escapeHtml(assigned)}</td>
+                            </tr>`;
+                        }).join('')}
+                    </tbody>
+                </table>
             </div>
         `;
-        }).join('');
+        ticketsList.querySelectorAll('.user-ticket-row').forEach(row => {
+            row.addEventListener('click', () => {
+                const id = row.dataset.ticketId;
+                if (id) window.location.href = `ticket-detail.html?id=${encodeURIComponent(id)}`;
+            });
+            row.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    row.click();
+                }
+            });
+        });
         
     } catch (error) {
         ticketsList.innerHTML = `<p class="error-message">Error loading tickets: ${error.message}</p>`;

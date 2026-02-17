@@ -1,0 +1,237 @@
+/* Ticket detail — full-width, clean layout */
+.ticket-detail-page {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    background: var(--bg-primary);
+}
+
+.ticket-detail-nav {
+    flex-shrink: 0;
+}
+
+.ticket-detail-main {
+    flex: 1;
+    max-width: 900px;
+    width: 100%;
+    margin: 0 auto;
+    padding: 24px 20px 32px;
+    box-sizing: border-box;
+}
+
+.ticket-detail-loading,
+.ticket-detail-error {
+    padding: 32px;
+    text-align: center;
+    color: var(--text-secondary);
+}
+
+.ticket-detail-error {
+    color: var(--error-color);
+}
+
+.ticket-detail-header {
+    margin-bottom: 24px;
+    padding-bottom: 20px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.ticket-detail-title {
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin: 0 0 12px 0;
+    letter-spacing: -0.02em;
+    line-height: 1.3;
+}
+
+.ticket-detail-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 16px;
+    font-size: 14px;
+    color: var(--text-secondary);
+}
+
+.ticket-detail-badge {
+    display: inline-block;
+    padding: 4px 12px;
+    border-radius: 8px;
+    font-weight: 600;
+    font-size: 13px;
+}
+
+.ticket-detail-badge.status-closed { background: #f0fdf4; color: #166534; }
+.ticket-detail-badge.status-escalated { background: #fef2f2; color: #b91c1c; }
+.ticket-detail-badge.status-in-progress { background: #fff7ed; color: #c2410c; }
+.ticket-detail-badge.status-open { background: var(--bg-tertiary); color: var(--text-secondary); }
+
+.ticket-detail-tabs {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 20px;
+}
+
+.ticket-tab {
+    padding: 10px 18px;
+    font-size: 14px;
+    font-weight: 500;
+    border: none;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-family: inherit;
+    transition: background 0.2s, color 0.2s;
+}
+
+.ticket-tab:hover {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+}
+
+.ticket-tab.active {
+    background: var(--primary-color);
+    color: #fff;
+}
+
+.ticket-tab-panel {
+    display: none;
+}
+
+.ticket-tab-panel.active {
+    display: block;
+}
+
+.ticket-detail-section {
+    margin-bottom: 24px;
+}
+
+.ticket-detail-section h2 {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    margin: 0 0 8px 0;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+}
+
+.ticket-detail-body {
+    font-size: 15px;
+    line-height: 1.6;
+    color: var(--text-primary);
+    margin: 0;
+}
+
+.ticket-detail-ai-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.ticket-detail-ai-item {
+    padding: 12px 14px;
+    background: var(--bg-tertiary);
+    border-radius: 8px;
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--text-primary);
+}
+
+.ticket-detail-ai-item time {
+    font-size: 12px;
+    color: var(--text-tertiary);
+    display: block;
+    margin-bottom: 6px;
+}
+
+/* Chat tab */
+#ticket-tab-chat {
+    display: flex;
+    flex-direction: column;
+    min-height: 400px;
+}
+
+.ticket-chat-thread {
+    flex: 1;
+    min-height: 320px;
+    max-height: 60vh;
+    overflow-y: auto;
+    padding: 16px 0;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.ticket-chat-bubble {
+    max-width: 85%;
+    padding: 10px 14px;
+    border-radius: 12px;
+    font-size: 14px;
+    line-height: 1.5;
+}
+
+.ticket-chat-bubble.user {
+    align-self: flex-end;
+    background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+    color: #fff;
+}
+
+.ticket-chat-bubble.admin,
+.ticket-chat-bubble.ai {
+    align-self: flex-start;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+}
+
+.ticket-chat-bubble .chat-sender {
+    font-size: 12px;
+    font-weight: 600;
+    margin-bottom: 4px;
+    color: var(--text-secondary);
+}
+
+.ticket-chat-bubble.user .chat-sender { color: rgba(255,255,255,0.9); }
+
+.ticket-chat-bubble .chat-time {
+    font-size: 11px;
+    color: var(--text-tertiary);
+    margin-top: 6px;
+}
+
+.ticket-chat-bubble.user .chat-time { color: rgba(255,255,255,0.75); }
+
+.ticket-chat-input-wrap {
+    flex-shrink: 0;
+    padding-top: 16px;
+    border-top: 1px solid var(--border-color);
+}
+
+.ticket-chat-form {
+    display: flex;
+    gap: 12px;
+    align-items: flex-end;
+}
+
+.ticket-chat-form textarea {
+    flex: 1;
+    min-height: 44px;
+    padding: 10px 14px;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    font-size: 14px;
+    font-family: inherit;
+    resize: none;
+}
+
+.ticket-chat-form textarea:focus {
+    outline: none;
+    border-color: var(--primary-color);
+}
+
+.ticket-chat-form .btn {
+    flex-shrink: 0;
+}

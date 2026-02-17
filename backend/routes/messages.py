@@ -16,20 +16,30 @@ def get_db():
     return firestore.client()
 
 
-def _is_unread_for_user(msg: dict, current_uid: str, ticket_user_id: str, ticket_assigned_to: Optional[str]) -> bool:
+def _is_unread_for_user(
+    msg: dict,
+    current_uid: str,
+    ticket_user_id: str,
+    ticket_assigned_to: Optional[str],
+    *,
+    current_role: Optional[str] = None,
+    ticket_org_id: Optional[str] = None,
+    current_org_id: Optional[str] = None,
+) -> bool:
     """True if this message is unread for current_uid. Supports legacy messages without recipient_id."""
     if msg.get("isRead") is True:
         return False
     recipient_id = msg.get("recipient_id")
     if recipient_id is not None:
         return recipient_id == current_uid
-    # Legacy: no recipient_id — infer from sender
     sender = msg.get("sender", "")
     if sender == "user":
-        # User message: unread for the assigned admin (or any admin if unassigned)
-        return ticket_assigned_to == current_uid if ticket_assigned_to else False
+        if ticket_assigned_to:
+            return ticket_assigned_to == current_uid
+        if current_role == "super_admin" and ticket_org_id and current_org_id and ticket_org_id == current_org_id:
+            return True
+        return False
     if sender in ("admin", "ai"):
-        # Admin/AI message: unread for the ticket owner (customer)
         return ticket_user_id == current_uid
     return False
 
@@ -72,9 +82,13 @@ async def get_unread_count(current_user: dict = Depends(get_current_user)):
         data = doc.to_dict()
         ticket_user_id = data.get("userId") or ""
         assigned_to = data.get("assigned_to")
+        ticket_org_id = data.get("organization_id")
         messages = data.get("messages") or []
         for m in messages:
-            if _is_unread_for_user(m, uid, ticket_user_id, assigned_to):
+            if _is_unread_for_user(
+                m, uid, ticket_user_id, assigned_to,
+                current_role=role, ticket_org_id=ticket_org_id, current_org_id=organization_id,
+            ):
                 count += 1
     return {"unread_count": count}
 

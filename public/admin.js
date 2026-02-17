@@ -45,7 +45,7 @@ function playNewMessageSound() {
 async function fetchUnreadCount() {
     try {
         const data = await apiRequest("/messages/unread-count");
-        const count = data.unread_count || 0;
+        const count = data.unread_count ?? data.unread_messages ?? 0;
         const badge = document.getElementById("sidebar-messages-badge");
         if (badge) {
             badge.textContent = count > 99 ? "99+" : String(count);

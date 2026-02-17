@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ticket - AI Helpdesk</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="css/ticket-detail.css">
+</head>
+<body class="ticket-detail-page">
+    <nav class="top-nav ticket-detail-nav">
+        <a href="submit-ticket.html" class="nav-brand">← Back to My Tickets</a>
+        <div class="nav-actions-visible">
+            <span id="user-email" class="nav-email"></span>
+            <button type="button" class="btn btn-secondary btn-sm" id="logout-btn">Logout</button>
+        </div>
+    </nav>
+
+    <main class="ticket-detail-main">
+        <div id="ticket-loading" class="ticket-detail-loading">Loading ticket...</div>
+        <div id="ticket-error" class="ticket-detail-error" style="display: none;"></div>
+        <div id="ticket-root" style="display: none;">
+            <header class="ticket-detail-header">
+                <h1 id="ticket-detail-title" class="ticket-detail-title"></h1>
+                <div class="ticket-detail-meta">
+                    <span id="ticket-detail-status" class="ticket-detail-badge"></span>
+                    <span id="ticket-detail-created"></span>
+                    <span id="ticket-detail-assigned"></span>
+                </div>
+            </header>
+
+            <div class="ticket-detail-tabs">
+                <button type="button" class="ticket-tab active" data-tab="details">Details</button>
+                <button type="button" class="ticket-tab" data-tab="chat">Chat</button>
+            </div>
+
+            <div id="ticket-tab-details" class="ticket-tab-panel active">
+                <section class="ticket-detail-section">
+                    <h2>Description</h2>
+                    <p id="ticket-detail-description" class="ticket-detail-body"></p>
+                </section>
+                <section class="ticket-detail-section" id="ticket-detail-summary-section">
+                    <h2>Summary</h2>
+                    <p id="ticket-detail-summary" class="ticket-detail-body"></p>
+                </section>
+                <section class="ticket-detail-section" id="ticket-detail-ai-section">
+                    <h2>AI response history</h2>
+                    <div id="ticket-detail-ai-history" class="ticket-detail-ai-list"></div>
+                </section>
+                <section class="ticket-detail-section" id="ticket-detail-escalation-section" style="display: none;">
+                    <h2>Escalation</h2>
+                    <p id="ticket-detail-escalation" class="ticket-detail-body"></p>
+                </section>
+            </div>
+
+            <div id="ticket-tab-chat" class="ticket-tab-panel">
+                <div class="ticket-chat-thread" id="ticket-chat-thread"></div>
+                <div class="ticket-chat-input-wrap" id="ticket-chat-input-wrap">
+                    <form id="ticket-chat-form" class="ticket-chat-form">
+                        <textarea id="ticket-chat-input" placeholder="Type your message..." rows="2" required></textarea>
+                        <button type="submit" class="btn btn-primary">Send</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script src="./config.js"></script>
+    <script type="module" src="./ticket-detail.js"></script>
+</body>
+</html>

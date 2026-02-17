@@ -1137,14 +1137,13 @@ async def add_message_to_ticket(
 
         messages = ticket_data.get("messages", [])
         now_iso = datetime.utcnow().isoformat()
-        is_read = (message_request.sender == "user")
         ticket_user_id = ticket_data.get("userId") or ""
         assigned_to = ticket_data.get("assigned_to")
         new_message = _message_payload(
             message_request.sender,
             message_request.message,
             now_iso,
-            is_read,
+            False,
             ticket_user_id,
             assigned_to,
             sender_id=uid if is_admin else None,

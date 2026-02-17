@@ -36,7 +36,7 @@ function loadDashboardStats() {
         const tickets = data.tickets || [];
         const stats = {
             total: tickets.length,
-            resolved: tickets.filter((t) => t.status === "resolved" || t.status === "auto_resolved").length,
+            resolved: tickets.filter((t) => t.status === "closed" || t.status === "resolved" || t.status === "auto_resolved").length,
             escalated: tickets.filter((t) => t.escalated === true).length,
             in_progress: tickets.filter((t) => t.status === "in_progress").length,
         };
@@ -707,9 +707,9 @@ async function loadEscalatedTickets() {
         
         ticketsList.innerHTML = tickets.map(ticket => {
             const unreadCount = ticket.unreadCount || 0;
-            const statusClass = ticket.status === 'auto_resolved' || ticket.status === 'resolved' ? 'badge-success' : 
-                               ticket.status === 'in_progress' ? 'badge-info' :
-                               ticket.status === 'pending' ? 'badge-neutral' : 'badge-warning';
+            const statusClass = ticket.status === 'closed' || ticket.status === 'resolved' || ticket.status === 'auto_resolved' ? 'badge-success' : 
+                               ticket.status === 'ai_responded' || ticket.status === 'in_progress' || ticket.status === 'awaiting_confirmation' ? 'badge-info' :
+                               ticket.status === 'escalated' ? 'badge-warning' : 'badge-neutral';
             
             return `
             <div class="ticket-card status-${ticket.status}" data-ticket-id="${ticket.id}">
@@ -809,7 +809,7 @@ async function loadAllTickets() {
             
             // Count by status and escalation
             // Escalation is independent of status - a ticket can be both escalated and in_progress
-            if (ticket.status === 'resolved' || ticket.status === 'auto_resolved') {
+            if (ticket.status === 'closed' || ticket.status === 'resolved' || ticket.status === 'auto_resolved') {
                 stats.resolved++;
             }
             // Count escalated tickets (using escalated field, not status)
@@ -849,7 +849,7 @@ async function loadAllTickets() {
         const statusFilterVal = document.getElementById('status-filter')?.value || window.currentTicketFilter || 'all';
         if (statusFilterVal !== 'all') {
             if (statusFilterVal === 'resolved') {
-                tickets = tickets.filter(t => t.status === 'resolved' || t.status === 'auto_resolved');
+                tickets = tickets.filter(t => t.status === 'closed' || t.status === 'resolved' || t.status === 'auto_resolved');
             } else if (statusFilterVal === 'escalated') {
                 tickets = tickets.filter(t => t.escalated === true);
             } else {
@@ -874,9 +874,9 @@ async function loadAllTickets() {
         
         ticketsList.innerHTML = tickets.map(ticket => {
             const unreadCount = ticket.unreadCount || 0;
-            const statusClass = ticket.status === 'auto_resolved' || ticket.status === 'resolved' ? 'badge-success' : 
-                               ticket.status === 'in_progress' ? 'badge-info' :
-                               ticket.status === 'pending' ? 'badge-neutral' : 'badge-warning';
+            const statusClass = ticket.status === 'closed' || ticket.status === 'resolved' || ticket.status === 'auto_resolved' ? 'badge-success' : 
+                               ticket.status === 'ai_responded' || ticket.status === 'in_progress' || ticket.status === 'awaiting_confirmation' ? 'badge-info' :
+                               ticket.status === 'escalated' ? 'badge-warning' : 'badge-neutral';
             
             return `
             <div class="ticket-card status-${ticket.status}" data-ticket-id="${ticket.id}">
@@ -1032,9 +1032,9 @@ async function openMessagesModal() {
             const messages = ticket.messages || [];
             const unreadCount = ticket.unreadCount || 0;
             const lastMessage = ticket.lastMessage || messages[messages.length - 1];
-            const statusClass = ticket.status === 'auto_resolved' || ticket.status === 'resolved' ? 'badge-success' : 
-                               ticket.status === 'in_progress' ? 'badge-info' :
-                               ticket.status === 'pending' ? 'badge-neutral' : 'badge-warning';
+            const statusClass = ticket.status === 'closed' || ticket.status === 'resolved' || ticket.status === 'auto_resolved' ? 'badge-success' : 
+                               ticket.status === 'ai_responded' || ticket.status === 'in_progress' || ticket.status === 'awaiting_confirmation' ? 'badge-info' :
+                               ticket.status === 'escalated' ? 'badge-warning' : 'badge-neutral';
             
             // Get message preview (last message text)
             const messagePreview = lastMessage ? escapeHtml(lastMessage.message) : '';
@@ -1359,9 +1359,9 @@ async function openTicketModal(ticketId) {
             <div class="ticket-detail-section">
                 <h3>Status & Category</h3>
                 <div class="badge-group">
-                    <span class="badge ${ticket.status === 'auto_resolved' || ticket.status === 'resolved' ? 'badge-success' : 
-                                   ticket.status === 'in_progress' ? 'badge-info' :
-                                   ticket.status === 'pending' ? 'badge-neutral' : 'badge-warning'}">${ticket.status.replace('_', ' ').toUpperCase()}</span>
+                    <span class="badge ${ticket.status === 'closed' || ticket.status === 'resolved' || ticket.status === 'auto_resolved' ? 'badge-success' : 
+                                   ticket.status === 'ai_responded' || ticket.status === 'in_progress' || ticket.status === 'awaiting_confirmation' ? 'badge-info' :
+                                   ticket.status === 'escalated' ? 'badge-warning' : 'badge-neutral'}">${ticket.status.replace('_', ' ').toUpperCase()}</span>
                     ${ticket.category ? `<span class="badge badge-neutral">${ticket.category}</span>` : ''}
                     ${ticket.confidence !== undefined ? `<span class="badge badge-info">${(ticket.confidence * 100).toFixed(1)}% Confidence</span>` : ''}
                 </div>
@@ -1369,11 +1369,13 @@ async function openTicketModal(ticketId) {
                     <div class="status-select-group">
                         <label for="ticket-status-select">Update Status:</label>
                         <select id="ticket-status-select">
-                            <option value="pending" ${ticket.status === 'pending' ? 'selected' : ''}>Pending</option>
-                            <option value="in_progress" ${ticket.status === 'in_progress' ? 'selected' : ''}>In Progress</option>
-                            <option value="resolved" ${ticket.status === 'resolved' ? 'selected' : ''}>Resolved</option>
+                            <option value="open" ${ticket.status === 'open' ? 'selected' : ''}>Open</option>
+                            <option value="ai_responded" ${ticket.status === 'ai_responded' ? 'selected' : ''}>AI Responded</option>
                             <option value="escalated" ${ticket.status === 'escalated' ? 'selected' : ''}>Escalated</option>
-                            <option value="auto_resolved" ${ticket.status === 'auto_resolved' ? 'selected' : ''}>Auto-Resolved</option>
+                            <option value="in_progress" ${ticket.status === 'in_progress' ? 'selected' : ''}>In Progress</option>
+                            <option value="awaiting_confirmation" ${ticket.status === 'awaiting_confirmation' ? 'selected' : ''}>Awaiting Confirmation</option>
+                            <option value="closed" ${ticket.status === 'closed' ? 'selected' : ''}>Closed</option>
+                            <option value="resolved" ${ticket.status === 'resolved' ? 'selected' : ''}>Resolved</option>
                         </select>
                         <button type="button" class="btn btn-primary btn-sm" data-action="update-ticket-status" data-ticket-id="${ticketId}">Update</button>
                     </div>

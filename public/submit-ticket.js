@@ -178,13 +178,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 // Show response
                 responseDiv.style.display = 'block';
                 
-                if (ticket.ai_mode === 'guided') {
+                // Success message based on actual ticket status
+                if (ticket.status === 'ai_responded') {
                     responseContent.innerHTML = `
                         <div class="alert alert-success">
-                            <strong>✅ Step-by-step help</strong>
-                            <p style="margin-top: 8px; margin-bottom: 0;">We'll guide you through this. Check the conversation below and reply to continue.</p>
+                            <strong>✅ We found a solution</strong>
+                            <p style="margin-top: 8px; margin-bottom: 0;">Check the conversation below. Reply YES if it resolved your issue, or NO to escalate to support.</p>
                         </div>
-                        <p style="margin-top: 12px; color: var(--text-secondary);">Your ticket is open. Use the conversation in the window that just opened, or find it under "My Tickets".</p>
+                        <p style="margin-top: 12px; color: var(--text-secondary);">Your ticket is ready. Use the conversation in the window that just opened, or find it under "My Tickets".</p>
                     `;
                     document.getElementById('ticket-form').reset();
                     loadMyTickets();
@@ -192,32 +193,24 @@ document.addEventListener('DOMContentLoaded', () => {
                     return;
                 }
                 
-                if (ticket.status === 'auto_resolved') {
-                    responseContent.innerHTML = `
-                        <div class="alert alert-success">
-                            <strong>✅ Issue Resolved Automatically</strong>
-                            <p style="margin-top: 8px; margin-bottom: 0;">
-                                Confidence: <strong>${(ticket.confidence * 100).toFixed(1)}%</strong>
-                                ${ticket.knowledge_used && ticket.knowledge_used.length > 0 ? 
-                                    ` | Based on: ${ticket.knowledge_used.join(', ')}` : ''}
-                            </p>
-                        </div>
-                        <div class="ai-reply">
-                            <h4>AI Solution</h4>
-                            <p>${escapeHtml(ticket.aiReply || 'No solution provided.')}</p>
-                        </div>
-                    `;
-                } else {
+                if (ticket.status === 'escalated') {
                     responseContent.innerHTML = `
                         <div class="alert alert-warning">
                             <strong>⚠️ Ticket Escalated</strong>
-                            <p style="margin-top: 8px; margin-bottom: 0;">Your ticket has been escalated to our support team for review.</p>
+                            <p style="margin-top: 8px; margin-bottom: 0;">We couldn't find a knowledge base article for this issue. Your ticket has been escalated to our support team.</p>
                         </div>
-                        <div style="margin-top: 16px;">
-                            ${ticket.category ? `<p><strong>Category:</strong> <span class="badge badge-neutral">${ticket.category}</span></p>` : ''}
-                            ${ticket.summary ? `<p style="margin-top: 8px;"><strong>Summary:</strong> ${escapeHtml(ticket.summary)}</p>` : ''}
+                        <p style="margin-top: 16px; color: var(--text-secondary);">A support agent will assist you shortly. You can check the status in the "My Tickets" tab.</p>
+                    `;
+                    document.getElementById('ticket-form').reset();
+                    loadMyTickets();
+                    openTicketModal(ticket.id);
+                    return;
+                } else {
+                    responseContent.innerHTML = `
+                        <div class="alert alert-success">
+                            <strong>✅ Ticket Submitted</strong>
+                            <p style="margin-top: 8px; margin-bottom: 0;">Your ticket has been created. Check "My Tickets" for the conversation.</p>
                         </div>
-                        <p style="margin-top: 16px; color: var(--text-secondary);">Our support team will review your ticket and get back to you soon. You can check the status in the "My Tickets" tab.</p>
                     `;
                 }
                 
@@ -268,7 +261,7 @@ window.loadMyTickets = async function() {
             
             // Count by status and escalation
             // Escalation is independent of status - a ticket can be both escalated and in_progress
-            if (ticket.status === 'resolved' || ticket.status === 'auto_resolved') {
+            if (ticket.status === 'closed' || ticket.status === 'resolved' || ticket.status === 'auto_resolved') {
                 stats.resolved++;
             }
             // Count escalated tickets (using escalated field, not status)
@@ -337,7 +330,7 @@ window.loadMyTickets = async function() {
         let filteredTickets = tickets;
         if (currentFilter !== 'all') {
             if (currentFilter === 'resolved') {
-                filteredTickets = tickets.filter(t => t.status === 'resolved' || t.status === 'auto_resolved');
+                filteredTickets = tickets.filter(t => t.status === 'closed' || t.status === 'resolved' || t.status === 'auto_resolved');
             } else if (currentFilter === 'escalated') {
                 // Use escalated field, not status
                 filteredTickets = tickets.filter(t => t.escalated === true);
@@ -375,10 +368,11 @@ window.loadMyTickets = async function() {
         
         ticketsList.innerHTML = filteredTickets.map(ticket => {
             const unreadCount = ticket.unreadCount || 0;
-            const statusClass = ticket.status === 'auto_resolved' ? 'badge-success' : 
-                               ticket.status === 'resolved' ? 'badge-success' :
-                               ticket.status === 'in_progress' ? 'badge-info' :
-                               ticket.status === 'pending' ? 'badge-neutral' : 'badge-warning';
+            const statusClass = ticket.status === 'closed' || ticket.status === 'resolved' || ticket.status === 'auto_resolved' ? 'badge-success' : 
+                               ticket.status === 'ai_responded' ? 'badge-info' :
+                               ticket.status === 'in_progress' || ticket.status === 'awaiting_confirmation' ? 'badge-info' :
+                               ticket.status === 'escalated' ? 'badge-warning' :
+                               ticket.status === 'open' ? 'badge-neutral' : 'badge-neutral';
             
             return `
             <div class="ticket-card status-${ticket.status}" data-ticket-id="${ticket.id}">
@@ -517,7 +511,7 @@ async function openTicketModal(ticketId) {
             <div class="ticket-detail-section">
                 <h3>Status</h3>
                 <div class="badge-group">
-                    <span class="badge ${ticket.resolved || ticket.status === 'resolved' || ticket.status === 'auto_resolved' ? 'badge-success' : 'badge-warning'}">${(ticket.status || '').replace('_', ' ').toUpperCase()}</span>
+                    <span class="badge ${ticket.resolved || ticket.status === 'closed' || ticket.status === 'resolved' || ticket.status === 'auto_resolved' ? 'badge-success' : ticket.status === 'escalated' ? 'badge-warning' : 'badge-neutral'}">${(ticket.status || '').replace('_', ' ').toUpperCase()}</span>
                     ${ticket.category ? `<span class="badge badge-neutral">${ticket.category}</span>` : ''}
                     ${!isGuided && ticket.confidence !== undefined ? `<span class="badge badge-info">${(ticket.confidence * 100).toFixed(1)}% Confidence</span>` : ''}
                     ${isGuided ? '<span class="badge badge-info">Step-by-step</span>' : ''}
@@ -565,7 +559,7 @@ async function openTicketModal(ticketId) {
         `;
         
         // Show message input for users (hide when ticket is resolved)
-        const isResolved = ticket.resolved === true || ticket.status === 'resolved' || ticket.status === 'auto_resolved';
+        const isResolved = ticket.resolved === true || ticket.status === 'closed' || ticket.status === 'resolved' || ticket.status === 'auto_resolved';
         messageInputArea.style.display = isResolved ? 'none' : 'block';
         
         // Scroll to bottom of conversation
@@ -804,7 +798,7 @@ function renderFilteredTickets(tickets) {
     let filteredTickets = tickets;
     if (currentFilter !== 'all') {
         if (currentFilter === 'resolved') {
-            filteredTickets = tickets.filter(t => t.status === 'resolved' || t.status === 'auto_resolved');
+            filteredTickets = tickets.filter(t => t.status === 'closed' || t.status === 'resolved' || t.status === 'auto_resolved');
         } else if (currentFilter === 'escalated') {
             // Use escalated field, not status
             filteredTickets = tickets.filter(t => t.escalated === true);
@@ -842,9 +836,9 @@ function renderFilteredTickets(tickets) {
     
     ticketsList.innerHTML = filteredTickets.map(ticket => {
         const unreadCount = ticket.unreadCount || 0;
-        const statusClass = ticket.status === 'auto_resolved' || ticket.status === 'resolved' ? 'badge-success' : 
-                           ticket.status === 'in_progress' ? 'badge-info' :
-                           ticket.status === 'pending' ? 'badge-neutral' : 'badge-warning';
+        const statusClass = ticket.status === 'closed' || ticket.status === 'resolved' || ticket.status === 'auto_resolved' ? 'badge-success' : 
+                           ticket.status === 'ai_responded' || ticket.status === 'in_progress' || ticket.status === 'awaiting_confirmation' ? 'badge-info' :
+                           ticket.status === 'escalated' ? 'badge-warning' : 'badge-neutral';
         
         return `
         <div class="ticket-card status-${ticket.status}" data-ticket-id="${ticket.id}">

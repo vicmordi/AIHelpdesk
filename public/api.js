@@ -60,3 +60,14 @@ export async function apiRequest(endpoint, options = {}) {
 export function isAuthenticated() {
   return !!getToken();
 }
+
+/**
+ * Format an ISO timestamp (UTC with Z) in the user's local timezone.
+ * Uses browser locale and timezone so times display correctly for the viewer.
+ */
+export function formatLocalTime(isoString) {
+  if (!isoString) return "";
+  const d = new Date(isoString);
+  if (Number.isNaN(d.getTime())) return String(isoString);
+  return d.toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" });
+}

@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from typing import List, Optional
 from fastapi import Query
 from datetime import datetime
+import re
 from openai import OpenAI
 import json
 from firebase_admin import firestore
@@ -27,6 +28,42 @@ from kb_search import (
 )
 
 router = APIRouter()
+
+
+def utc_iso_now() -> str:
+    """Return current UTC time as ISO string with Z suffix so clients parse as UTC and display in local timezone."""
+    return datetime.utcnow().isoformat() + "Z"
+
+
+def _ensure_utc_z(ts: str) -> str:
+    """If ts looks like ISO datetime without timezone, append Z so JS parses as UTC."""
+    if not ts or not isinstance(ts, str):
+        return ts
+    s = ts.strip()
+    if not s or s.endswith("Z") or s.endswith("z"):
+        return ts
+    if re.search(r"[+-]\d{2}:?\d{2}$", s):
+        return ts
+    if re.match(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}", s):
+        return s + "Z" if not s.endswith("Z") else ts
+    return ts
+
+
+def _normalize_ticket_timestamps(obj):
+    """Recursively normalize createdAt/created_at (and updatedAt/updated_at) to end with Z for client timezone display."""
+    if isinstance(obj, dict):
+        out = {}
+        for k, v in obj.items():
+            if k in ("createdAt", "created_at", "updatedAt", "updated_at") and isinstance(v, str):
+                out[k] = _ensure_utc_z(v)
+            elif k == "messages" and isinstance(v, list):
+                out[k] = [_normalize_ticket_timestamps(m) for m in v]
+            else:
+                out[k] = _normalize_ticket_timestamps(v)
+        return out
+    if isinstance(obj, list):
+        return [_normalize_ticket_timestamps(x) for x in obj]
+    return obj
 
 
 def get_db():
@@ -563,7 +600,7 @@ async def create_ticket(
                     "content": article_data.get("content", ""),
                 })
 
-        now_iso = datetime.utcnow().isoformat()
+        now_iso = utc_iso_now()
         # Resolve user name for chat identity
         user_doc = db.collection("users").document(uid).get()
         user_name = "Customer"
@@ -1020,7 +1057,7 @@ async def get_all_tickets(
             if _ticket_matches_filters(item, status_group, filter_assigned_to, search):
                 result.append(item)
         result.sort(key=lambda x: x.get("createdAt", ""), reverse=True)
-        return {"tickets": result}
+        return {"tickets": [_normalize_ticket_timestamps(t) for t in result]}
     except HTTPException:
         raise
     except Exception as e:
@@ -1055,7 +1092,7 @@ async def get_my_tickets(current_user: dict = Depends(get_current_user)):
                 ticket_data["assigned_to_name"] = _user_display_name(db, at)
             result.append({"id": doc.id, **ticket_data})
         result.sort(key=lambda x: x.get("createdAt", ""), reverse=True)
-        return {"tickets": result}
+        return {"tickets": [_normalize_ticket_timestamps(t) for t in result]}
     except HTTPException:
         raise
     except Exception as e:
@@ -1118,7 +1155,7 @@ async def get_escalated_tickets(current_user: dict = Depends(require_admin_or_ab
                     ticket_data["assigned_to_name"] = _user_display_name(db, at)
                 result.append({"id": doc.id, **ticket_data})
         result.sort(key=lambda x: x.get("createdAt", ""), reverse=True)
-        return {"tickets": result}
+        return {"tickets": [_normalize_ticket_timestamps(t) for t in result]}
     except HTTPException:
         raise
     except Exception as e:
@@ -1167,7 +1204,8 @@ async def get_ticket_by_id(
     assigned_to = ticket_data.get("assigned_to")
     if assigned_to:
         ticket_data["assigned_to_name"] = _user_display_name(db, assigned_to) or None
-    return {"id": doc.id, **ticket_data}
+    out = {"id": doc.id, **ticket_data}
+    return _normalize_ticket_timestamps(out)
 
 
 @router.post("/{ticket_id}/messages")
@@ -1209,7 +1247,7 @@ async def add_message_to_ticket(
             raise HTTPException(status_code=403, detail="You can only send messages on tickets assigned to you")
 
         messages = ticket_data.get("messages", [])
-        now_iso = datetime.utcnow().isoformat()
+        now_iso = utc_iso_now()
         ticket_user_id = ticket_data.get("userId") or ""
         assigned_to = ticket_data.get("assigned_to")
         new_message = _message_payload(
@@ -1253,7 +1291,7 @@ async def add_message_to_ticket(
         ):
             user_msg = message_request.message
             msg_lower = user_msg.strip().lower()
-            now_iso = datetime.utcnow().isoformat()
+            now_iso = utc_iso_now()
             if msg_lower in ("yes", "y", "yeah", "sure") or any(p in msg_lower for p in ("working", "resolved", "fixed", "all good", "thank")):
                 ticket_ref.update({
                     "messages": messages,
@@ -1280,7 +1318,7 @@ async def add_message_to_ticket(
         ):
             user_msg = message_request.message
             msg_lower = user_msg.strip().lower()
-            now_iso = datetime.utcnow().isoformat()
+            now_iso = utc_iso_now()
 
             # YES / solved / fixed / resolved → close ticket (status=CLOSED, mode=AI)
             if msg_lower in ("yes", "y", "yeah", "sure") or any(p in msg_lower for p in ("solved", "fixed", "resolved", "it worked", "working", "all good", "thank you", "thanks")):
@@ -1324,7 +1362,7 @@ async def add_message_to_ticket(
             and ticket_data.get("ai_mode") == "guided"
             and not ticket_data.get("resolved")
         ):
-            now_iso = datetime.utcnow().isoformat()
+            now_iso = utc_iso_now()
             escalation_msg = ESCALATE_REPLY
             messages.append(_message_payload("ai", escalation_msg, now_iso, False, ticket_user_id, assigned_to))
             article_title = (ticket_data.get("knowledge_used") or [None])[0] if ticket_data.get("knowledge_used") else None
@@ -1443,7 +1481,7 @@ async def update_ticket_status(
         update_data = {
             "status": new_status,
             "escalated": current_escalated,
-            "updatedAt": datetime.utcnow().isoformat()
+            "updatedAt": utc_iso_now()
         }
         if new_status == "resolved" and ticket_data.get("mode") == "human":
             update_data["status"] = "awaiting_confirmation"
@@ -1453,7 +1491,7 @@ async def update_ticket_status(
             t_uid = ticket_data.get("userId") or ""
             t_assigned = ticket_data.get("assigned_to")
             messages.append(_message_payload(
-                "admin", SUPPORT_CONFIRMATION_MSG, datetime.utcnow().isoformat(), False,
+                "admin", SUPPORT_CONFIRMATION_MSG, utc_iso_now(), False,
                 t_uid, t_assigned,
                 sender_id=uid,
                 sender_name=current_user.get("name") or current_user.get("email") or "Support",
@@ -1499,7 +1537,7 @@ async def assign_ticket(
                 raise HTTPException(status_code=400, detail="Assigned user must belong to your organization")
         ticket_ref.update({
             "assigned_to": assigned_to,
-            "updatedAt": datetime.utcnow().isoformat(),
+            "updatedAt": utc_iso_now(),
         })
         return {"message": "Ticket assignment updated", "ticket_id": ticket_id, "assigned_to": assigned_to}
     except HTTPException:

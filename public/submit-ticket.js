@@ -1,7 +1,7 @@
 /**
  * Submit Ticket Page JavaScript — backend API only, no Firebase client SDK.
  */
-import { apiRequest, clearToken, isAuthenticated } from "./api.js";
+import { apiRequest, clearToken, isAuthenticated, formatLocalTime } from "./api.js";
 
 let currentUser = null;
 
@@ -447,9 +447,9 @@ window.loadMyTickets = async function() {
             if (msgs.length > 0) {
                 const last = msgs[msgs.length - 1];
                 const ts = last.createdAt || last.created_at;
-                if (ts) return new Date(ts).toLocaleString();
+                if (ts) return formatLocalTime(ts);
             }
-            return t.updatedAt ? new Date(t.updatedAt).toLocaleString() : new Date(t.createdAt).toLocaleString();
+            return t.updatedAt ? formatLocalTime(t.updatedAt) : formatLocalTime(t.createdAt);
         };
         ticketsList.innerHTML = `
             <div class="user-tickets-table-wrap">
@@ -476,7 +476,7 @@ window.loadMyTickets = async function() {
                                     ${unreadCount > 0 ? `<span class="user-ticket-unread">${unreadCount > 99 ? '99+' : unreadCount}</span>` : ''}
                                 </td>
                                 <td><span class="user-ticket-badge ${statusBadgeClass(ticket)}">${statusLabel(ticket)}</span></td>
-                                <td>${new Date(ticket.createdAt).toLocaleDateString()}</td>
+                                <td>${formatLocalTime(ticket.createdAt)}</td>
                                 <td>${lastUpdated(ticket)}</td>
                                 <td>${escapeHtml(assigned)}</td>
                             </tr>`;
@@ -545,7 +545,7 @@ function appendMessageToTicketThread(sender, message, createdAt, senderName, sen
     if (emptyEl) emptyEl.remove();
     const msg = { sender, sender_name: senderName, sender_role: senderRole };
     const senderLabel = getSenderLabel(msg, null, false);
-    const time = createdAt ? new Date(createdAt).toLocaleString() : new Date().toLocaleString();
+    const time = createdAt ? formatLocalTime(createdAt) : formatLocalTime(new Date().toISOString());
     const bubble = document.createElement('div');
     bubble.className = `message-item ${sender}`;
     bubble.innerHTML = `
@@ -801,7 +801,7 @@ function renderFilteredTickets(tickets) {
             <div class="ticket-meta">
                 <div class="ticket-meta-item">
                     <span>📅</span>
-                    <span>${new Date(ticket.createdAt).toLocaleString()}</span>
+                    <span>${formatLocalTime(ticket.createdAt)}</span>
                 </div>
             </div>
         </div>
@@ -892,14 +892,14 @@ async function openMessagesModal() {
                 <div class="ticket-message" style="margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border-color);">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
                         <strong style="font-size: 12px; color: var(--text-secondary);">${senderLabel}</strong>
-                        <span style="font-size: 11px; color: var(--text-tertiary);">${new Date(lastMessage.createdAt).toLocaleString()}</span>
+                        <span style="font-size: 11px; color: var(--text-tertiary);">${formatLocalTime(lastMessage.createdAt)}</span>
                     </div>
                     <div style="color: var(--text-primary); font-size: 14px;">${previewText}</div>
                 </div>
                 <div class="ticket-meta">
                     <div class="ticket-meta-item">
                         <span>📅</span>
-                        <span>Created: ${new Date(ticket.createdAt).toLocaleString()}</span>
+                        <span>Created: ${formatLocalTime(ticket.createdAt)}</span>
                     </div>
                 </div>
             </div>

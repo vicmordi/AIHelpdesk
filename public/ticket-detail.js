@@ -2,7 +2,7 @@
  * Ticket detail page — single unified view for Employee, Support Admin, Super Admin.
  * Loads ticket via GET /tickets/:id. Same layout for all roles; only controls differ.
  */
-import { apiRequest, clearToken, isAuthenticated } from "./api.js";
+import { apiRequest, clearToken, isAuthenticated, formatLocalTime } from "./api.js";
 
 let currentUser = null;
 let currentTicket = null;
@@ -63,7 +63,7 @@ async function loadTicket() {
         statusEl.textContent = statusLabel;
         statusEl.className = "ticket-detail-badge " + statusClass;
 
-        document.getElementById("ticket-detail-created").textContent = "Created " + new Date(ticket.createdAt).toLocaleString();
+        document.getElementById("ticket-detail-created").textContent = "Created " + formatLocalTime(ticket.createdAt);
         let assignedLabel = "Unassigned";
         if (ticket.assigned_to) {
             if (ticket.assigned_to_name) assignedLabel = "Assigned to " + ticket.assigned_to_name;
@@ -95,7 +95,7 @@ async function loadTicket() {
             aiSection.style.display = "block";
             aiHistory.innerHTML = aiMessages.map((m) => `
                 <div class="ticket-detail-ai-item">
-                    <time>${new Date(m.createdAt || m.created_at).toLocaleString()}</time>
+                    <time>${formatLocalTime(m.createdAt || m.created_at)}</time>
                     ${escapeHtml(m.message || "")}
                 </div>
             `).join("");
@@ -182,14 +182,14 @@ function renderChat(ticket) {
     let html = "";
     if (messages.length === 0) {
         const userLabel = isAdminView ? (ticket.created_by_name || "Customer") + " (User)" : "You";
-        html = `<div class="ticket-chat-bubble user"><span class="chat-sender">${escapeHtml(userLabel)}</span><div>${escapeHtml(ticket.message || "")}</div><span class="chat-time">${new Date(ticket.createdAt).toLocaleString()}</span></div>`;
+        html = `<div class="ticket-chat-bubble user"><span class="chat-sender">${escapeHtml(userLabel)}</span><div>${escapeHtml(ticket.message || "")}</div><span class="chat-time">${formatLocalTime(ticket.createdAt)}</span></div>`;
         if (ticket.aiReply && ticket.ai_mode !== "guided") {
-            html += `<div class="ticket-chat-bubble ai"><span class="chat-sender">AI Assistant</span><div>${escapeHtml(ticket.aiReply)}</div><span class="chat-time">${new Date(ticket.createdAt).toLocaleString()}</span></div>`;
+            html += `<div class="ticket-chat-bubble ai"><span class="chat-sender">AI Assistant</span><div>${escapeHtml(ticket.aiReply)}</div><span class="chat-time">${formatLocalTime(ticket.createdAt)}</span></div>`;
         }
     } else {
         html = messages.map((m) => {
             const senderLabel = getSenderLabel(m, isAdminView);
-            const time = new Date(m.createdAt || m.created_at).toLocaleString();
+            const time = formatLocalTime(m.createdAt || m.created_at);
             const cls = m.sender === "user" ? "user" : m.sender === "admin" ? "admin" : "ai";
             return `<div class="ticket-chat-bubble ${cls}"><span class="chat-sender">${escapeHtml(senderLabel)}</span><div>${escapeHtml(m.message || "")}</div><span class="chat-time">${time}</span></div>`;
         }).join("");
@@ -203,7 +203,7 @@ function appendMessageOptimistic(sender, message, senderLabel) {
     const p = thread.querySelector("p");
     if (p) p.remove();
     const cls = sender === "user" ? "user" : sender === "admin" ? "admin" : "ai";
-    const time = new Date().toLocaleString();
+    const time = formatLocalTime(new Date().toISOString());
     const div = document.createElement("div");
     div.className = `ticket-chat-bubble ${cls} ticket-chat-optimistic`;
     div.innerHTML = `<span class="chat-sender">${escapeHtml(senderLabel)}</span><div>${escapeHtml(message)}</div><span class="chat-time">${time}</span>`;

@@ -1,7 +1,7 @@
 /**
  * Admin Dashboard JavaScript — backend API only, hash-based pages, sidebar.
  */
-import { apiRequest, clearToken, isAuthenticated } from "./api.js";
+import { apiRequest, clearToken, isAuthenticated, formatLocalTime } from "./api.js";
 import { renderSidebar } from "./js/sidebar.js";
 
 let currentUser = null;
@@ -770,7 +770,7 @@ async function loadEscalatedTickets() {
                 <div class="ticket-meta">
                     <div class="ticket-meta-item">
                         <span>📅</span>
-                        <span>${new Date(ticket.createdAt).toLocaleString()}</span>
+                        <span>${formatLocalTime(ticket.createdAt)}</span>
                     </div>
                 </div>
             </div>
@@ -924,9 +924,9 @@ async function loadAllTickets() {
             if (msgs.length > 0) {
                 const last = msgs[msgs.length - 1];
                 const ts = last.createdAt || last.created_at;
-                if (ts) return new Date(ts).toLocaleString();
+                if (ts) return formatLocalTime(ts);
             }
-            return t.updatedAt ? new Date(t.updatedAt).toLocaleString() : new Date(t.createdAt).toLocaleString();
+            return t.updatedAt ? formatLocalTime(t.updatedAt) : formatLocalTime(t.createdAt);
         };
         ticketsList.innerHTML = `
             <div class="admin-tickets-table-wrap">
@@ -953,7 +953,7 @@ async function loadAllTickets() {
                                     ${unreadCount > 0 ? `<span class="ticket-row-unread">${unreadCount > 99 ? "99+" : unreadCount}</span>` : ""}
                                 </td>
                                 <td><span class="admin-ticket-badge ${statusBadgeClass(ticket)}">${statusLabel(ticket)}</span></td>
-                                <td>${new Date(ticket.createdAt).toLocaleDateString()}</td>
+                                <td>${formatLocalTime(ticket.createdAt)}</td>
                                 <td>${lastUpdated(ticket)}</td>
                                 <td>${escapeHtml(assignedName)}</td>
                             </tr>`;
@@ -1268,7 +1268,7 @@ async function openMessagesModal() {
                 <div class="ticket-message" style="margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border-color);">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
                         <strong style="font-size: 12px; color: var(--text-secondary);">${senderLabel}</strong>
-                        <span style="font-size: 11px; color: var(--text-tertiary);">${new Date(lastMessage.createdAt).toLocaleString()}</span>
+                        <span style="font-size: 11px; color: var(--text-tertiary);">${formatLocalTime(lastMessage.createdAt)}</span>
                     </div>
                     <div style="color: var(--text-primary); font-size: 14px;">${previewText}</div>
                 </div>
@@ -1279,7 +1279,7 @@ async function openMessagesModal() {
                     </div>
                     <div class="ticket-meta-item">
                         <span>📅</span>
-                        <span>Created: ${new Date(ticket.createdAt).toLocaleString()}</span>
+                        <span>Created: ${formatLocalTime(ticket.createdAt)}</span>
                     </div>
                 </div>
             </div>
@@ -1371,8 +1371,8 @@ function openArticleViewModal(articleId, title, content, createdAt, updatedAt, c
         catEl.textContent = currentArticleData.category || '—';
         catGroup.style.display = currentArticleData.category ? 'block' : 'none';
     }
-    let metaText = `Created: ${createdAt ? new Date(createdAt).toLocaleString() : '—'}`;
-    if (updatedAt) metaText += ` | Updated: ${new Date(updatedAt).toLocaleString()}`;
+    let metaText = `Created: ${createdAt ? formatLocalTime(createdAt) : '—'}`;
+    if (updatedAt) metaText += ` | Updated: ${formatLocalTime(updatedAt)}`;
     if (currentArticleData.created_by_name) metaText += ` | Author: ${currentArticleData.created_by_name}`;
     document.getElementById('article-view-meta').textContent = metaText;
 
@@ -1438,8 +1438,8 @@ function cancelEditMode() {
         catEl.textContent = currentArticleData.category || '—';
         catGroup.style.display = currentArticleData.category ? 'block' : 'none';
     }
-    let metaText = `Created: ${currentArticleData.createdAt ? new Date(currentArticleData.createdAt).toLocaleString() : '—'}`;
-    if (currentArticleData.updatedAt) metaText += ` | Updated: ${new Date(currentArticleData.updatedAt).toLocaleString()}`;
+    let metaText = `Created: ${currentArticleData.createdAt ? formatLocalTime(currentArticleData.createdAt) : '—'}`;
+    if (currentArticleData.updatedAt) metaText += ` | Updated: ${formatLocalTime(currentArticleData.updatedAt)}`;
     if (currentArticleData.created_by_name) metaText += ` | Author: ${currentArticleData.created_by_name}`;
     document.getElementById('article-view-meta').textContent = metaText;
     

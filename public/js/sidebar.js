@@ -11,6 +11,7 @@ export function renderSidebar(container, options = {}) {
     const links = [
         { id: "dashboard", hash: "#dashboard", label: "Dashboard", icon: "🏠" },
         { id: "tickets", hash: "#tickets", label: "View All Tickets", icon: "🎫" },
+        { id: "messages", hash: "#messages", label: "Messages", icon: "📨" },
         { id: "knowledge-base", hash: "#knowledge-base", label: "Knowledge Base", icon: "📚" },
     ];
     if (isSuperAdmin) {

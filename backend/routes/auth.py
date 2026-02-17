@@ -39,6 +39,7 @@ class RegisterOrgRequest(BaseModel):
     """Multi-tenant registration: creates organization + super_admin user."""
     organization_name: str
     organization_code: str
+    super_admin_name: str = ""
     email: EmailStr
     password: str
 
@@ -66,10 +67,13 @@ def _firebase_auth_request(endpoint: str, body: dict) -> dict:
 @router.post("/login")
 async def login(request: LoginRequest):
     """
-    Login with email/password. For org users, organization_code is required;
-    backend verifies user belongs to that organization.
-    Legacy users (no org) can omit organization_code.
+    Login requires organization_code, email, password.
+    Backend finds org by code, validates user belongs to that org.
+    Prevents cross-organization access.
     """
+    if not (request.organization_code or "").strip():
+        raise HTTPException(status_code=400, detail="Organization code is required")
+
     try:
         data = _firebase_auth_request("signInWithPassword", {
             "email": request.email,
@@ -79,6 +83,13 @@ async def login(request: LoginRequest):
         uid = data["localId"]
         db = get_db()
 
+        orgs_ref = db.collection("organizations")
+        orgs = orgs_ref.where("organization_code", "==", request.organization_code.strip()).limit(1).stream()
+        org_doc = next(orgs, None)
+        if not org_doc:
+            raise HTTPException(status_code=401, detail="Invalid organization code")
+        org_id = org_doc.id
+
         user_ref = db.collection("users").document(uid)
         user_doc = user_ref.get()
         if not user_doc.exists:
@@ -87,30 +98,11 @@ async def login(request: LoginRequest):
         if user_data.get("disabled"):
             raise HTTPException(status_code=403, detail="Account is disabled")
 
-        # If organization_code provided: validate and optionally link legacy user
-        if request.organization_code:
-            orgs_ref = db.collection("organizations")
-            orgs = orgs_ref.where("organization_code", "==", request.organization_code.strip()).limit(1).stream()
-            org_doc = next(orgs, None)
-            if not org_doc:
-                raise HTTPException(status_code=401, detail="Invalid organization code")
-            org_id = org_doc.id
-            user_org_id = user_data.get("organization_id")
-            if user_org_id is None:
-                # Legacy account: link user to this organization (organization_id is primary, not code)
-                user_ref.update({
-                    "organization_id": org_id,
-                    "last_login": datetime.utcnow().isoformat(),
-                })
-            elif user_org_id != org_id:
-                raise HTTPException(status_code=401, detail="User does not belong to this organization")
-            else:
-                # Already linked; update last_login
-                user_ref.update({"last_login": datetime.utcnow().isoformat()})
-        else:
-            # No org code: update last_login for users that have no org (legacy)
-            if user_data.get("organization_id") is None:
-                user_ref.update({"last_login": datetime.utcnow().isoformat()})
+        user_org_id = user_data.get("organization_id")
+        if user_org_id != org_id:
+            raise HTTPException(status_code=401, detail="User does not belong to this organization")
+
+        user_ref.update({"last_login": datetime.utcnow().isoformat()})
 
         return {"token": data["idToken"], "email": data.get("email")}
     except HTTPException:
@@ -214,10 +206,12 @@ async def register_org(request: RegisterOrgRequest):
         organization_id = org_ref.id
 
         # Create user doc with role super_admin and organization_id
+        full_name = (request.super_admin_name or "").strip() or email
         user_ref = db.collection("users").document(uid)
         user_ref.set({
             "uid": uid,
             "email": email,
+            "full_name": full_name,
             "role": "super_admin",
             "organization_id": organization_id,
             "must_change_password": False,

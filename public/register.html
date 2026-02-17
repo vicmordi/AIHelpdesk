@@ -21,15 +21,19 @@
             <div id="success-message" class="alert alert-success" style="display: none;"></div>
             
             <form id="register-form">
-                <p class="subtitle" style="margin-bottom: 12px;">Create a new organization (you will be the super admin)</p>
+                <p class="subtitle" style="margin-bottom: 12px;">Create your organization. You will be the Super Admin.</p>
                 <div class="form-group">
                     <label for="organization-name">Organization Name</label>
-                    <input type="text" id="organization-name" name="organization_name" placeholder="Acme Inc.">
+                    <input type="text" id="organization-name" name="organization_name" required placeholder="Acme Inc.">
+                </div>
+                <div class="form-group">
+                    <label for="super-admin-name">Super Admin Name</label>
+                    <input type="text" id="super-admin-name" name="super_admin_name" required placeholder="Your full name">
                 </div>
                 <div class="form-group">
                     <label for="organization-code">Organization Code</label>
-                    <input type="text" id="organization-code" name="organization_code" placeholder="ACME" autocomplete="off">
-                    <small style="display: block; margin-top: 4px; color: var(--text-tertiary); font-size: 12px;">Unique code for your organization (e.g. ACME). Users will use this to sign in.</small>
+                    <input type="text" id="organization-code" name="organization_code" required placeholder="ACME" autocomplete="off">
+                    <small style="display: block; margin-top: 4px; color: var(--text-tertiary); font-size: 12px;">Unique code for your organization. Users will use this to sign in.</small>
                 </div>
                 <div class="form-group">
                     <label for="register-email">Email Address</label>
@@ -39,21 +43,7 @@
                     <label for="register-password">Password</label>
                     <input type="password" id="register-password" name="password" required minlength="6" placeholder="Minimum 6 characters">
                 </div>
-                <hr style="margin: 16px 0; border: none; border-top: 1px solid var(--border);">
-                <p class="subtitle" style="margin-bottom: 12px; font-size: 12px;">Or create an employee/admin account (no organization)</p>
-                <div class="form-group">
-                    <label for="register-role">Account Type</label>
-                    <select id="register-role" name="role" required>
-                        <option value="employee" selected>Employee (Default)</option>
-                        <option value="admin">Administrator</option>
-                    </select>
-                </div>
-                <div class="form-group" id="admin-code-group" style="display: none;">
-                    <label for="admin-code">Admin Access Code</label>
-                    <input type="password" id="admin-code" name="admin_code" placeholder="Enter admin access code" autocomplete="off">
-                    <small style="display: block; margin-top: 4px; color: var(--text-tertiary); font-size: 12px;">Admin access code is required to create an administrator account.</small>
-                </div>
-                <button type="submit" class="btn btn-primary" style="width: 100%;">Create Account</button>
+                <button type="submit" class="btn btn-primary" style="width: 100%;">Create Organization</button>
             </form>
             
             <div class="auth-footer">

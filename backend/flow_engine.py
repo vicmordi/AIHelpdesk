@@ -36,9 +36,8 @@ CLARIFICATION_VARIATIONS = (
     "Which option applies to you?",
 )
 ESCALATION_VARIATIONS = (
-    "I'm going to escalate this to a support specialist for further assistance.",
-    "Let me escalate this to a support engineer who can help further.",
-    "I'll pass this to a support specialist.",
+    "I wasn't able to fully resolve this for you. I've escalated your ticket to our support team. They will respond shortly.",
+    "I wasn't able to fully resolve this for you. I've escalated your ticket to our support team. They will respond shortly.",
 )
 
 

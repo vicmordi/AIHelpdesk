@@ -36,6 +36,12 @@ class CreateSupportAdminRequest(BaseModel):
     temporary_password: str
 
 
+class CreateEmployeeRequest(BaseModel):
+    full_name: str
+    email: EmailStr
+    temporary_password: str
+
+
 class ResetSupportAdminPasswordRequest(BaseModel):
     uid: str
     new_password: str
@@ -108,6 +114,7 @@ async def create_support_admin(
         "role": "support_admin",
         "organization_id": organization_id,
         "must_change_password": True,
+        "created_by": current_user["uid"],
         "created_at": datetime.utcnow().isoformat(),
         "createdAt": datetime.utcnow().isoformat(),
     })
@@ -216,3 +223,56 @@ async def delete_support_admin(
         raise HTTPException(status_code=400, detail=f"Failed to delete user: {str(e)}")
     db.collection("users").document(uid).delete()
     return {"message": "User deleted"}
+
+
+@router.post("/create-employee")
+async def create_employee(
+    body: CreateEmployeeRequest,
+    current_user: dict = Depends(require_super_admin),
+):
+    """
+    Create an employee (user) in the same organization. Super_admin only.
+    Assigns organization_id, must_change_password=True, created_by=super_admin_id.
+    """
+    organization_id = _ensure_org_and_same_org(current_user)
+    full_name = (body.full_name or "").strip()
+    if not full_name:
+        raise HTTPException(status_code=400, detail="Full name is required")
+    email = body.email.strip().lower()
+    password = (body.temporary_password or "").strip()
+    if len(password) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+
+    try:
+        user_record = firebase_auth.create_user(
+            email=email,
+            password=password,
+            email_verified=False,
+        )
+        uid = user_record.uid
+    except firebase_auth.EmailAlreadyExistsError:
+        raise HTTPException(status_code=400, detail="Email already registered")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Could not create user: {str(e)}")
+
+    db = get_db()
+    db.collection("users").document(uid).set({
+        "uid": uid,
+        "email": email,
+        "full_name": full_name,
+        "role": "employee",
+        "organization_id": organization_id,
+        "must_change_password": True,
+        "created_by": current_user["uid"],
+        "created_at": datetime.utcnow().isoformat(),
+        "createdAt": datetime.utcnow().isoformat(),
+    })
+
+    return {
+        "message": "Employee created successfully",
+        "uid": uid,
+        "email": email,
+        "full_name": full_name,
+        "role": "employee",
+        "must_change_password": True,
+    }

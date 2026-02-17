@@ -31,6 +31,10 @@ function getSenderLabel(msg, ticket, isAdminView) {
             return;
         }
         currentUser = userData;
+        if (userData.must_change_password) {
+            window.location.href = "change-password.html";
+            return;
+        }
         document.getElementById("user-email").textContent = userData.email || "";
         const avatar = document.getElementById("user-avatar");
         if (avatar) avatar.textContent = (userData.email || "U").charAt(0).toUpperCase();

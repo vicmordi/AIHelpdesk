@@ -117,11 +117,70 @@ def _escalate_no_kb_match() -> dict:
     }
 
 
+def _build_ai_internal_summary(
+    ticket_message: str,
+    messages: list,
+    article_title: Optional[str] = None,
+    reason: str = "No relevant knowledge base found",
+    recommended_action: Optional[str] = None,
+) -> str:
+    """
+    Build a structured AI escalation summary for support admins.
+    Not visible to users. Stored in ai_internal_summary.
+    """
+    lines = [
+        "-------------------------------------------------------",
+        "AI ESCALATION SUMMARY",
+        "-------------------------------------------------------",
+        "",
+        "User Intent:",
+        f"- The user is trying to: {ticket_message[:300]}",
+        "",
+        "Knowledge Base Attempted:",
+    ]
+    if article_title:
+        steps_summary = "Article provided to user."
+        if messages:
+            ai_msgs = [m.get("message", "")[:150] for m in messages if m.get("sender") == "ai"]
+            if ai_msgs:
+                steps_summary = ai_msgs[-1][:200] + "..." if len(ai_msgs[-1]) > 200 else ai_msgs[-1]
+        lines.extend([
+            f"- Article matched: {article_title}",
+            f"- Steps provided: {steps_summary}",
+            "- Outcome: User reported issue not resolved",
+        ])
+    else:
+        lines.extend([
+            "- No matching article found",
+            "- Outcome: N/A",
+        ])
+    lines.extend(["", "Conversation Summary:"])
+    for m in (messages or [])[:10]:
+        sender = m.get("sender", "?")
+        label = "User" if sender == "user" else "AI" if sender == "ai" else "Admin"
+        msg = (m.get("message") or "")[:200]
+        if len((m.get("message") or "")) > 200:
+            msg += "..."
+        lines.append(f"- {label} said: \"{msg}\"")
+    lines.extend([
+        "",
+        "Reason for Escalation:",
+        f"- {reason}",
+        "",
+        "Recommended Next Action:",
+        f"- {recommended_action or 'Manual review required'}",
+        "-------------------------------------------------------",
+    ])
+    return "\n".join(lines)
+
+
 INTRO_MSG = "I'll help you with that right away."
 CONFIRMATION_PROMPT = "Please let me know if this resolved your issue.\n\nReply YES to close the ticket,\nor NO to escalate to support."
 RESOLVED_REPLY = "Great! I'm glad that resolved your issue.\n\nIf you need anything else, feel free to open a new ticket."
-ESCALATE_REPLY = "No problem. I've escalated this to our support team.\n\nA support agent will assist you shortly."
-NO_KB_FOUND_MSG = "I couldn't find a knowledge base article for this issue.\n\nI've escalated it to our support team."
+ESCALATE_MSG_1 = "I wasn't able to fully resolve this for you."
+ESCALATE_MSG_2 = "I've escalated your ticket to our support team. They will respond shortly."
+ESCALATE_REPLY = ESCALATE_MSG_1 + "\n\n" + ESCALATE_MSG_2
+NO_KB_FOUND_MSG = ESCALATE_MSG_1 + "\n\n" + ESCALATE_MSG_2
 SUPPORT_CONFIRMATION_MSG = "Please confirm if this resolves your issue."
 
 
@@ -192,7 +251,7 @@ def _format_resolution_confirmed_message() -> str:
 
 def _format_stuck_or_escalate_message() -> str:
     """When user says stuck or doesn't work."""
-    return "Let me escalate this to a support specialist who can help further."
+    return ESCALATE_REPLY
 
 
 def _get_article_branches(art: dict) -> dict:
@@ -492,6 +551,11 @@ async def create_ticket(
                     "isRead": False,
                 })
                 summary = (ticket.message[:200] + "..." if len(ticket.message) > 200 else ticket.message)
+                ai_summary = _build_ai_internal_summary(
+                    ticket.message, messages, article_title=None,
+                    reason="No relevant knowledge base found",
+                    recommended_action="Manual review and KB article creation if applicable",
+                )
                 ticket_data = {
                     "userId": uid,
                     "created_by_name": user_name,
@@ -507,6 +571,7 @@ async def create_ticket(
                     "confidence": 0.0,
                     "knowledge_used": [],
                     "internal_note": "No KB match",
+                    "ai_internal_summary": ai_summary,
                     "messages": messages,
                     "createdAt": now_iso,
                     "ai_mode": "ai_free",
@@ -558,6 +623,11 @@ async def create_ticket(
                 "isRead": False,
             })
             summary_fallback = (ticket.message[:200] + "..." if len(ticket.message) > 200 else ticket.message)
+            ai_summary = _build_ai_internal_summary(
+                ticket.message, messages, article_title=None,
+                reason=f"AI processing error: {str(e)[:150]}",
+                recommended_action="Manual review required",
+            )
             ticket_data = {
                 "userId": uid,
                 "created_by_name": user_name,
@@ -573,6 +643,7 @@ async def create_ticket(
                 "confidence": 0.0,
                 "knowledge_used": [],
                 "internal_note": f"AI error: {str(e)[:200]}",
+                "ai_internal_summary": ai_summary,
                 "messages": messages,
                 "createdAt": now_iso,
                 "ai_mode": "ai_free",
@@ -584,6 +655,11 @@ async def create_ticket(
         if ticket_data is None:
             messages.append({"sender": "ai", "message": NO_KB_FOUND_MSG, "createdAt": now_iso, "isRead": False})
             summary_fallback = (ticket.message[:200] + "..." if len(ticket.message) > 200 else ticket.message)
+            ai_summary = _build_ai_internal_summary(
+                ticket.message, messages, article_title=None,
+                reason="No relevant knowledge base found",
+                recommended_action="Manual review required",
+            )
             ticket_data = {
                 "userId": uid,
                 "created_by_name": user_name,
@@ -599,6 +675,7 @@ async def create_ticket(
                 "confidence": 0.0,
                 "knowledge_used": [],
                 "internal_note": "No KB match",
+                "ai_internal_summary": ai_summary,
                 "messages": messages,
                 "createdAt": now_iso,
                 "ai_mode": "ai_free",
@@ -933,6 +1010,8 @@ async def get_my_tickets(current_user: dict = Depends(get_current_user)):
             if "escalated" not in ticket_data:
                 ticket_data["escalated"] = (ticket_data.get("status") == "escalated" or
                                            ticket_data.get("status") == "needs_escalation")
+            # Users must NOT see ai_internal_summary (admin-only)
+            ticket_data.pop("ai_internal_summary", None)
             result.append({"id": doc.id, **ticket_data})
         result.sort(key=lambda x: x.get("createdAt", ""), reverse=True)
         return {"tickets": result}
@@ -1122,6 +1201,14 @@ async def add_message_to_ticket(
             if msg_lower in ("no", "n") or _is_dissatisfaction(user_msg) or any(p in msg_lower for p in ("not working", "still broken", "didn't help", "escalate")):
                 ai_reply = ESCALATE_REPLY
                 messages.append({"sender": "ai", "message": ai_reply, "createdAt": now_iso, "isRead": False})
+                article_title = (ticket_data.get("knowledge_used") or [None])[0] if ticket_data.get("knowledge_used") else None
+                ai_summary = _build_ai_internal_summary(
+                    ticket_data.get("message", ""),
+                    messages,
+                    article_title=article_title,
+                    reason="User unsatisfied after guided steps",
+                    recommended_action="Manual review and personalized support",
+                )
                 ticket_ref.update({
                     "messages": messages,
                     "status": "escalated",
@@ -1129,6 +1216,7 @@ async def add_message_to_ticket(
                     "escalated": True,
                     "ai_mode": "ai_free",
                     "internal_note": (ticket_data.get("internal_note") or "") + " [User: NO / escalate]",
+                    "ai_internal_summary": ai_summary,
                 })
                 return {"message": "Message added successfully", "ticket_id": ticket_id, "new_message": new_message, "ai_reply": {"sender": "ai", "message": ai_reply, "createdAt": now_iso}}
 
@@ -1140,7 +1228,15 @@ async def add_message_to_ticket(
         ):
             now_iso = datetime.utcnow().isoformat()
             escalation_msg = ESCALATE_REPLY
-            messages.append({"sender": "ai", "message": humanize_reply(escalation_msg), "createdAt": now_iso, "isRead": False})
+            messages.append({"sender": "ai", "message": escalation_msg, "createdAt": now_iso, "isRead": False})
+            article_title = (ticket_data.get("knowledge_used") or [None])[0] if ticket_data.get("knowledge_used") else None
+            ai_summary = _build_ai_internal_summary(
+                ticket_data.get("message", ""),
+                messages,
+                article_title=article_title,
+                reason="Flow disabled - escalated",
+                recommended_action="Manual review required",
+            )
             ticket_ref.update({
                 "messages": messages,
                 "mode": "human",
@@ -1148,6 +1244,7 @@ async def add_message_to_ticket(
                 "status": "escalated",
                 "escalated": True,
                 "internal_note": (ticket_data.get("internal_note") or "") + " [Flow disabled - escalated]",
+                "ai_internal_summary": ai_summary,
                 "last_activity_timestamp": now_iso,
             })
             return {"message": "Message added successfully", "ticket_id": ticket_id, "new_message": new_message, "ai_reply": {"sender": "ai", "message": escalation_msg, "createdAt": now_iso}}

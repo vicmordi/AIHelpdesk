@@ -34,6 +34,7 @@ function showPage(pageId) {
             if (currentUser?.role === "super_admin") openAddArticleModal();
         }
     } else if (pageId === "dashboard") loadDashboardStats();
+    else if (pageId === "messages") loadMessagesPage();
     else if (pageId === "support-admins") {
         if (currentUser?.role === "super_admin") loadSupportAdminsPage();
         else document.getElementById("support-admins-list") && (document.getElementById("support-admins-list").innerHTML = "<p class=\"empty-state\">Access denied.</p>");
@@ -217,8 +218,23 @@ async function loadSettingsPage() {
                 </div>
             </div>
             <div class="card">
-                <div class="card-header"><h2>User management</h2></div>
+                <div class="card-header"><h2>User Management</h2></div>
                 <div class="card-body">
+                    <h3 style="margin-top: 0;">Create Support Admin</h3>
+                    <form id="settings-create-support-admin" class="form-inline" style="margin-bottom: 24px;">
+                        <input type="text" id="settings-support-admin-name" placeholder="Full Name" required>
+                        <input type="email" id="settings-support-admin-email" placeholder="Email" required>
+                        <input type="password" id="settings-support-admin-password" placeholder="Temporary password" required minlength="6">
+                        <button type="submit" class="btn btn-primary">Create Support Admin</button>
+                    </form>
+                    <h3>Create Employee</h3>
+                    <form id="settings-create-employee" class="form-inline" style="margin-bottom: 24px;">
+                        <input type="text" id="settings-employee-name" placeholder="Full Name" required>
+                        <input type="email" id="settings-employee-email" placeholder="Email" required>
+                        <input type="password" id="settings-employee-password" placeholder="Temporary password" required minlength="6">
+                        <button type="submit" class="btn btn-primary">Create Employee</button>
+                    </form>
+                    <h3>Organization Users</h3>
                     <table class="data-table">
                         <thead><tr><th>Full Name</th><th>Email</th><th>Role</th><th>Status</th><th>Last login</th><th>Actions</th></tr></thead>
                         <tbody>
@@ -277,6 +293,34 @@ async function loadSettingsPage() {
         });
         content.querySelectorAll(".support-admin-disable").forEach((btn) => btn.addEventListener("click", () => disableSupportAdmin(btn.dataset.uid)));
         content.querySelectorAll(".support-admin-enable").forEach((btn) => btn.addEventListener("click", () => enableSupportAdmin(btn.dataset.uid)));
+        const createSupportAdminForm = content.querySelector("#settings-create-support-admin");
+        if (createSupportAdminForm) createSupportAdminForm.addEventListener("submit", async (e) => {
+            e.preventDefault();
+            const fullName = content.querySelector("#settings-support-admin-name")?.value?.trim();
+            const email = content.querySelector("#settings-support-admin-email")?.value?.trim();
+            const password = content.querySelector("#settings-support-admin-password")?.value;
+            if (!fullName || !email || !password) return;
+            try {
+                await apiRequest("/admin/create-support-admin", { method: "POST", body: JSON.stringify({ full_name: fullName, email, temporary_password: password }) });
+                showSuccess("Support admin created. User must change password on first login.");
+                createSupportAdminForm.reset();
+                loadSettingsPage();
+            } catch (err) { showError(err.message || "Failed"); }
+        });
+        const createEmployeeForm = content.querySelector("#settings-create-employee");
+        if (createEmployeeForm) createEmployeeForm.addEventListener("submit", async (e) => {
+            e.preventDefault();
+            const fullName = content.querySelector("#settings-employee-name")?.value?.trim();
+            const email = content.querySelector("#settings-employee-email")?.value?.trim();
+            const password = content.querySelector("#settings-employee-password")?.value;
+            if (!fullName || !email || !password) return;
+            try {
+                await apiRequest("/admin/create-employee", { method: "POST", body: JSON.stringify({ full_name: fullName, email, temporary_password: password }) });
+                showSuccess("Employee created. User must change password on first login.");
+                createEmployeeForm.reset();
+                loadSettingsPage();
+            } catch (err) { showError(err.message || "Failed"); }
+        });
     } catch (e) {
         content.innerHTML = `<p class="error-message">${e.message || "Failed to load settings"}</p>`;
     }
@@ -297,6 +341,10 @@ async function loadSettingsPage() {
             return;
         }
         currentUser = userData;
+        if (userData.must_change_password) {
+            window.location.href = "change-password.html";
+            return;
+        }
 
         const sidebarEl = document.getElementById("admin-sidebar");
         if (sidebarEl) {
@@ -1000,6 +1048,70 @@ function filterTicketsByStat(filter) {
 }
 
 /**
+ * Load Messages page (3 tabs: In Progress, Escalated, Closed)
+ * Support Admin: only assigned tickets. Super Admin: all tickets.
+ */
+let messagesPageActiveTab = 'in_progress';
+async function loadMessagesPage() {
+    const listEl = document.getElementById('messages-page-list');
+    if (!listEl) return;
+    listEl.innerHTML = '<div class="loading">Loading...</div>';
+    const tabBtns = document.querySelectorAll('#messages-tabs .tab-btn');
+    tabBtns.forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.tab === messagesPageActiveTab);
+        btn.onclick = () => {
+            messagesPageActiveTab = btn.dataset.tab;
+            loadMessagesPage();
+        };
+    });
+    try {
+        const data = await apiRequest('/tickets');
+        let tickets = data.tickets || [];
+        if (messagesPageActiveTab === 'in_progress') {
+            tickets = tickets.filter(t => t.status === 'in_progress');
+        } else if (messagesPageActiveTab === 'escalated') {
+            tickets = tickets.filter(t => t.status === 'escalated' || t.escalated === true);
+        } else if (messagesPageActiveTab === 'closed') {
+            tickets = tickets.filter(t => ['closed', 'resolved', 'auto_resolved'].includes(t.status));
+        }
+        tickets.forEach(ticket => {
+            const messages = ticket.messages || [];
+            ticket.lastMessage = messages[messages.length - 1];
+            ticket.lastMessageTime = ticket.lastMessage ? new Date(ticket.lastMessage.createdAt).getTime() : 0;
+            ticket.unreadCount = messages.filter(m => m.sender === 'user' && !m.isRead).length;
+        });
+        tickets.sort((a, b) => (b.lastMessageTime || 0) - (a.lastMessageTime || 0));
+        const statusClass = (t) => t.status === 'closed' || t.status === 'resolved' || t.status === 'auto_resolved' ? 'badge-success' :
+            t.status === 'in_progress' || t.status === 'ai_responded' || t.status === 'awaiting_confirmation' ? 'badge-info' :
+            t.status === 'escalated' ? 'badge-warning' : 'badge-neutral';
+        if (tickets.length === 0) {
+            listEl.innerHTML = `<div class="empty-state"><div class="empty-state-icon">📭</div><p>No tickets in this category.</p></div>`;
+            return;
+        }
+        listEl.innerHTML = tickets.map(ticket => {
+            const lastMessage = ticket.lastMessage;
+            const senderLabel = lastMessage ? getSenderLabel(lastMessage, ticket, true) : '';
+            const preview = lastMessage ? (escapeHtml(lastMessage.message).substring(0, 100) + (lastMessage.message.length > 100 ? '...' : '')) : '';
+            return `
+            <div class="ticket-card status-${ticket.status}" data-ticket-id="${ticket.id}" style="cursor: pointer;">
+                <div class="ticket-header">
+                    <div class="ticket-id">Ticket #${ticket.id.substring(0, 8)}</div>
+                    ${(ticket.unreadCount || 0) > 0 ? `<span class="notification-badge">${ticket.unreadCount > 99 ? '99+' : ticket.unreadCount}</span>` : ''}
+                    <span class="badge ${statusClass(ticket)}">${(ticket.status || '').replace('_', ' ').toUpperCase()}</span>
+                </div>
+                ${ticket.summary ? `<div class="ticket-summary">${escapeHtml(ticket.summary)}</div>` : ''}
+                ${lastMessage ? `<div style="font-size: 13px; color: var(--text-secondary); margin-top: 8px;">${senderLabel}: ${preview}</div>` : ''}
+            </div>`;
+        }).join('');
+        listEl.querySelectorAll('.ticket-card[data-ticket-id]').forEach(card => {
+            card.addEventListener('click', () => openTicketModal(card.dataset.ticketId));
+        });
+    } catch (err) {
+        listEl.innerHTML = `<p class="error-message">Error: ${err.message}</p>`;
+    }
+}
+
+/**
  * Open messages modal showing ALL conversations (inbox view) - Admin
  * Shows all tickets with messages, sorted by most recent message
  */
@@ -1441,6 +1553,12 @@ async function openTicketModal(ticketId) {
                 <div class="internal-note">
                     <p>${escapeHtml(ticket.internal_note)}</p>
                 </div>
+            </div>
+            ` : ''}
+            ${ticket.ai_internal_summary ? `
+            <div class="ticket-detail-section">
+                <h3>AI Escalation Summary</h3>
+                <div class="internal-note" style="white-space: pre-wrap; font-family: monospace; font-size: 12px; background: var(--bg-secondary); padding: 12px; border-radius: 8px;">${escapeHtml(ticket.ai_internal_summary)}</div>
             </div>
             ` : ''}
             

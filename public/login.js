@@ -25,6 +25,10 @@ async function checkTokenAndRedirect() {
     });
     if (!res.ok) return;
     const userData = await res.json();
+    if (userData.must_change_password) {
+      window.location.href = "change-password.html";
+      return;
+    }
     const role = userData.role || "";
     if (role === "admin" || role === "super_admin" || role === "support_admin") {
       window.location.href = "admin.html";
@@ -42,14 +46,18 @@ document.getElementById("login-form").addEventListener("submit", async (e) => {
   const organizationCode = organizationCodeEl ? organizationCodeEl.value.trim() : "";
   const email = document.getElementById("email").value;
   const password = document.getElementById("password").value;
+  if (!organizationCode) {
+    errorMessage.textContent = "Organization code is required.";
+    errorMessage.style.display = "flex";
+    return;
+  }
   const errorMessage = document.getElementById("error-message");
   const successMessage = document.getElementById("success-message");
   errorMessage.style.display = "none";
   successMessage.style.display = "none";
 
   try {
-    const body = { email, password };
-    if (organizationCode) body.organization_code = organizationCode;
+    const body = { email, password, organization_code: organizationCode };
     const res = await fetch(`${getApiBaseUrl()}/auth/login`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -67,6 +75,10 @@ document.getElementById("login-form").addEventListener("submit", async (e) => {
     });
     if (meRes.ok) {
       const userData = await meRes.json();
+      if (userData.must_change_password) {
+        window.location.href = "change-password.html";
+        return;
+      }
       const role = userData.role || "";
       if (role === "admin" || role === "super_admin" || role === "support_admin") {
         window.location.href = "admin.html";

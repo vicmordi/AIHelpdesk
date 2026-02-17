@@ -3,56 +3,55 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Helpdesk - Register</title>
+    <title>AI Helpdesk - Create account</title>
     <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="css/register.css">
 </head>
-<body>
-    <div class="auth-container">
-        <div class="auth-card">
-            <div class="auth-header">
-                <div class="auth-icon">
-                    <span class="auth-icon-badge">✓</span>
-                </div>
-                <h1>Create Account</h1>
-                <p class="subtitle">Join AI Helpdesk to get started</p>
+<body class="register-page">
+    <div class="register-bg"></div>
+    <div class="register-wrap">
+        <div class="register-box">
+            <div class="register-header">
+                <h1>Create account</h1>
+                <p class="register-subtitle">Create your organization. You’ll be the admin.</p>
             </div>
-            
-            <div id="error-message" class="alert alert-error" style="display: none;"></div>
-            <div id="success-message" class="alert alert-success" style="display: none;"></div>
-            
-            <form id="register-form">
-                <p class="subtitle" style="margin-bottom: 12px;">Create your organization. You will be the Super Admin.</p>
-                <div class="form-group">
+            <div id="error-message" class="register-alert register-alert-error" style="display: none;"></div>
+            <div id="success-message" class="register-alert register-alert-success" style="display: none;"></div>
+            <form id="register-form" class="register-form">
+                <div class="register-field">
                     <label for="organization-name">Organization Name</label>
                     <input type="text" id="organization-name" name="organization_name" required placeholder="Acme Inc.">
                 </div>
-                <div class="form-group">
-                    <label for="super-admin-name">Super Admin Name</label>
+                <div class="register-field">
+                    <label for="super-admin-name">Admin Name</label>
                     <input type="text" id="super-admin-name" name="super_admin_name" required placeholder="Your full name">
                 </div>
-                <div class="form-group">
+                <div class="register-field">
                     <label for="organization-code">Organization Code</label>
                     <input type="text" id="organization-code" name="organization_code" required placeholder="ACME" autocomplete="off">
-                    <small style="display: block; margin-top: 4px; color: var(--text-tertiary); font-size: 12px;">Unique code for your organization. Users will use this to sign in.</small>
+                    <span class="register-hint">Users sign in with this code.</span>
                 </div>
-                <div class="form-group">
-                    <label for="register-email">Email Address</label>
-                    <input type="email" id="register-email" name="email" required placeholder="your.email@example.com">
+                <div class="register-field">
+                    <label for="register-email">Email</label>
+                    <input type="email" id="register-email" name="email" required placeholder="you@example.com">
                 </div>
-                <div class="form-group">
+                <div class="register-field">
                     <label for="register-password">Password</label>
-                    <input type="password" id="register-password" name="password" required minlength="6" placeholder="Minimum 6 characters">
+                    <input type="password" id="register-password" name="password" required minlength="6" placeholder="Min 6 characters">
                 </div>
-                <button type="submit" class="btn btn-primary" style="width: 100%;">Create Organization</button>
+                <div class="register-field">
+                    <label for="register-password-confirm">Confirm Password</label>
+                    <input type="password" id="register-password-confirm" name="password_confirm" required minlength="6" placeholder="Repeat password">
+                </div>
+                <button type="submit" class="register-submit">Create account</button>
             </form>
-            
-            <div class="auth-footer">
-                <p>Already have an account? <a href="login.html">Sign in here</a></p>
-                <p style="margin-top: 12px;"><a href="index.html">← Back to Home</a></p>
-            </div>
+            <p class="register-footer">
+                Already have an account? <a href="login.html">Sign in</a>
+                <span class="register-footer-sep">·</span>
+                <a href="index.html">Back to home</a>
+            </p>
         </div>
     </div>
-    
     <script src="./config.js"></script>
     <script type="module" src="./register.js"></script>
 </body>

@@ -1618,6 +1618,15 @@ body {
     box-sizing: border-box;
 }
 
+.notification-badge.pulse-once {
+    animation: notification-badge-pulse 0.5s ease-out;
+}
+@keyframes notification-badge-pulse {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.2); }
+    100% { transform: scale(1); }
+}
+
 /* Utility Classes */
 .text-center { text-align: center; }
 .text-right { text-align: right; }

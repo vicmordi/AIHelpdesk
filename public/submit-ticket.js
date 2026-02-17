@@ -41,6 +41,8 @@ function getSenderLabel(msg, ticket, isAdminView) {
         loadMyTickets();
         document.querySelector('[data-tab="my-tickets"]')?.click();
         document.getElementById("messages-icon-btn")?.addEventListener("click", () => openMessagesModal());
+        fetchUnreadCount();
+        window._unreadPoll = setInterval(fetchUnreadCount, 10000);
     } catch (err) {
         console.error("Error loading user data:", err);
         showError("Failed to load user data");
@@ -48,6 +50,53 @@ function getSenderLabel(msg, ticket, isAdminView) {
         window.location.href = "login.html";
     }
 })();
+
+/**
+ * Optional: short subtle sound when new unread message arrives.
+ */
+function playNewMessageSound() {
+    try {
+        const C = window.AudioContext || window.webkitAudioContext;
+        if (!C) return;
+        const ctx = new C();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.frequency.value = 880;
+        osc.type = "sine";
+        gain.gain.setValueAtTime(0.1, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.1);
+        osc.start(ctx.currentTime);
+        osc.stop(ctx.currentTime + 0.1);
+    } catch (_) {}
+}
+
+/**
+ * Fetch unread message count from API and update header + tab badges.
+ */
+async function fetchUnreadCount() {
+    try {
+        const data = await apiRequest("/messages/unread-count");
+        const count = data.unread_count || 0;
+        const headerBadge = document.getElementById("header-unread-badge");
+        const tabBadge = document.getElementById("unread-badge");
+        if (headerBadge) {
+            headerBadge.textContent = count > 99 ? "99+" : String(count);
+            headerBadge.style.display = count > 0 ? "inline-flex" : "none";
+            if (count > 0 && (window._lastUnreadCount ?? 0) < count) {
+                headerBadge.classList.add("pulse-once");
+                setTimeout(() => headerBadge.classList.remove("pulse-once"), 600);
+                playNewMessageSound();
+            }
+            window._lastUnreadCount = count;
+        }
+        if (tabBadge) {
+            tabBadge.textContent = count > 99 ? "99+" : String(count);
+            tabBadge.style.display = count > 0 ? "inline-flex" : "none";
+        }
+    } catch (_) {}
+}
 
 /**
  * Close a modal overlay by removing .active. Used by body delegation for .modal-close-btn and overlay backdrop.
@@ -589,15 +638,12 @@ async function openTicketModal(ticketId) {
             renderStepOptions([]);
         }
         
-        // Mark messages as read when viewing
+        // Mark messages as read when viewing (recipient-aware)
         try {
-            await apiRequest(`/tickets/${ticketId}/messages/read`, {
-                method: 'POST'
-            });
-            // Reload tickets to update unread counts and message icon badge
-            await loadMyTickets();
+            await apiRequest(`/messages/mark-read/${ticketId}`, { method: "POST" });
+            fetchUnreadCount();
         } catch (error) {
-            console.error('Error marking messages as read:', error);
+            console.error("Error marking messages as read:", error);
         }
         
     } catch (error) {

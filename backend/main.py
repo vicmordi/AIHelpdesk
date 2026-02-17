@@ -16,7 +16,7 @@ import firebase_admin
 from firebase_admin import credentials
 
 from config import CORS_ORIGINS, CORS_ORIGIN_REGEX, ENVIRONMENT
-from routes import auth, knowledge_base, tickets, admin, organization
+from routes import auth, knowledge_base, tickets, admin, organization, messages
 
 
 def init_firebase():
@@ -81,3 +81,4 @@ app.include_router(knowledge_base.router, prefix="/knowledge-base", tags=["Knowl
 app.include_router(tickets.router, prefix="/tickets", tags=["Tickets"])
 app.include_router(admin.router, prefix="/admin", tags=["Admin"])
 app.include_router(organization.router, prefix="/organization", tags=["Organization"])
+app.include_router(messages.router, prefix="/messages", tags=["Messages"])

@@ -15,7 +15,7 @@ export function renderSidebar(container, options = {}) {
         { id: "knowledge-base", hash: "#knowledge-base", label: "Knowledge Base", icon: "📚" },
     ];
     if (isSuperAdmin) {
-        links.push({ id: "support-admins", hash: "#support-admins", label: "Support Admins", icon: "👥" });
+        links.push({ id: "users", hash: "#users", label: "User Management", icon: "👥" });
         links.push({ id: "settings", hash: "#settings", label: "Settings", icon: "⚙️" });
     }
     links.push({ id: "logout", hash: "#logout", label: "Logout", icon: "🚪", isLogout: true });
@@ -49,6 +49,7 @@ export function renderSidebar(container, options = {}) {
                 <a class="sidebar-link" href="${l.action ? "#" : l.hash}" data-page="${l.id}" data-action="${l.action || ""}" data-nav>
                     <span class="sidebar-link-icon">${l.icon}</span>
                     <span class="sidebar-label">${l.label}</span>
+                    ${l.id === "messages" ? '<span class="notification-badge sidebar-messages-badge" id="sidebar-messages-badge" style="display: none;">0</span>' : ""}
                 </a>
             `).join("")}
         </nav>

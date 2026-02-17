@@ -18,6 +18,48 @@ function getSenderLabel(msg, ticket, isAdminView) {
     return "AI Assistant";
 }
 
+/**
+ * Optional: short subtle sound when new unread message arrives.
+ */
+function playNewMessageSound() {
+    try {
+        const C = window.AudioContext || window.webkitAudioContext;
+        if (!C) return;
+        const ctx = new C();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.frequency.value = 880;
+        osc.type = "sine";
+        gain.gain.setValueAtTime(0.1, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.1);
+        osc.start(ctx.currentTime);
+        osc.stop(ctx.currentTime + 0.1);
+    } catch (_) {}
+}
+
+/**
+ * Fetch unread message count and update sidebar Messages badge.
+ */
+async function fetchUnreadCount() {
+    try {
+        const data = await apiRequest("/messages/unread-count");
+        const count = data.unread_count || 0;
+        const badge = document.getElementById("sidebar-messages-badge");
+        if (badge) {
+            badge.textContent = count > 99 ? "99+" : String(count);
+            badge.style.display = count > 0 ? "inline-flex" : "none";
+            if (count > 0 && (window._adminLastUnreadCount ?? 0) < count) {
+                badge.classList.add("pulse-once");
+                setTimeout(() => badge.classList.remove("pulse-once"), 600);
+                playNewMessageSound();
+            }
+            window._adminLastUnreadCount = count;
+        }
+    } catch (_) {}
+}
+
 function showPage(pageId) {
     document.querySelectorAll(".admin-page").forEach((el) => {
         el.classList.toggle("active", el.getAttribute("data-page") === pageId);
@@ -35,9 +77,9 @@ function showPage(pageId) {
         }
     } else if (pageId === "dashboard") loadDashboardStats();
     else if (pageId === "messages") loadMessagesPage();
-    else if (pageId === "support-admins") {
-        if (currentUser?.role === "super_admin") loadSupportAdminsPage();
-        else document.getElementById("support-admins-list") && (document.getElementById("support-admins-list").innerHTML = "<p class=\"empty-state\">Access denied.</p>");
+    else if (pageId === "users") {
+        if (currentUser?.role === "super_admin") loadUserManagementPage();
+        else document.getElementById("user-mgmt-table-wrap") && (document.getElementById("user-mgmt-table-wrap").innerHTML = "<p class=\"empty-state\">Access denied. Super Admin only.</p>");
     } else if (pageId === "settings") {
         if (currentUser?.role === "super_admin") loadSettingsPage();
         else document.getElementById("settings-content") && (document.getElementById("settings-content").innerHTML = "<p class=\"empty-state\">Access denied. Super admin only.</p>");
@@ -60,7 +102,11 @@ function loadDashboardStats() {
             in_progress: tickets.filter((t) => t.status === "in_progress").length,
         };
         updateStatistics(stats);
-    }).catch(() => updateStatistics({ total: 0, resolved: 0, escalated: 0, in_progress: 0 }));
+        updateDashboardCharts(tickets);
+    }).catch(() => {
+        updateStatistics({ total: 0, resolved: 0, escalated: 0, in_progress: 0 });
+        updateDashboardCharts([]);
+    });
 }
 
 async function loadAssignableMembers() {
@@ -85,33 +131,48 @@ async function loadAssignableMembers() {
     }
 }
 
-async function loadSupportAdminsPage() {
-    const listEl = document.getElementById("support-admins-list");
-    if (!listEl) return;
-    listEl.innerHTML = "<div class=\"loading\">Loading...</div>";
+let userMgmtActiveTab = "support_admins";
+
+async function loadUserManagementPage() {
+    const wrap = document.getElementById("user-mgmt-table-wrap");
+    if (!wrap) return;
+    wrap.innerHTML = "<div class=\"loading\">Loading...</div>";
+    const tabBtns = document.querySelectorAll("#user-mgmt-tabs .tab-btn");
+    tabBtns.forEach((btn) => {
+        btn.classList.toggle("active", btn.dataset.tab === userMgmtActiveTab);
+        btn.onclick = () => {
+            userMgmtActiveTab = btn.dataset.tab;
+            loadUserManagementPage();
+        };
+    });
     try {
         const data = await apiRequest("/admin/users");
-        const users = (data.users || []).filter((u) => u.role === "support_admin" || u.role === "super_admin");
+        const allUsers = data.users || [];
+        const supportAdmins = allUsers.filter((u) => u.role === "support_admin" || u.role === "super_admin");
+        const employees = allUsers.filter((u) => u.role === "employee");
+        const users = userMgmtActiveTab === "support_admins" ? supportAdmins : employees;
+        const columns = userMgmtActiveTab === "support_admins"
+            ? "<thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th>Actions</th></tr></thead>"
+            : "<thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th>Actions</th></tr></thead>";
         if (users.length === 0) {
-            listEl.innerHTML = "<p class=\"empty-state\">No support admins yet. Create one above.</p>";
+            wrap.innerHTML = `<p class="empty-state">No ${userMgmtActiveTab === "support_admins" ? "support admins" : "employees"} yet. Click "+ Add New User" to create one.</p>`;
             return;
         }
-        listEl.innerHTML = `
+        wrap.innerHTML = `
             <table class="data-table">
-                <thead><tr><th>Full Name</th><th>Email</th><th>Role</th><th>Status</th><th>Created</th><th>Actions</th></tr></thead>
+                ${columns}
                 <tbody>
                     ${users.map((u) => `
                         <tr>
                             <td>${escapeHtml(u.full_name || u.name || u.email || "")}</td>
                             <td>${escapeHtml(u.email || "")}</td>
-                            <td><span class="badge ${u.role === 'super_admin' ? 'badge-warning' : 'badge-info'}">${u.role}</span></td>
+                            <td><span class="badge ${u.role === "super_admin" ? "badge-warning" : u.role === "support_admin" ? "badge-info" : "badge-neutral"}">${u.role.replace("_", " ")}</span></td>
                             <td>${u.status === "disabled" ? "<span class=\"badge badge-danger\">Disabled</span>" : "Active"}</td>
-                            <td>${u.created_at ? new Date(u.created_at).toLocaleDateString() : "-"}</td>
                             <td>
-                                ${u.role !== "super_admin" && u.uid !== currentUser?.uid ? `
-                                    <button type="button" class="btn btn-small btn-secondary support-admin-reset-pwd" data-uid="${u.uid}">Reset password</button>
-                                    ${u.status === "disabled" ? `<button type="button" class="btn btn-small btn-secondary support-admin-enable" data-uid="${u.uid}">Enable</button>` : `<button type="button" class="btn btn-small btn-danger support-admin-disable" data-uid="${u.uid}">Disable</button>`}
-                                    <button type="button" class="btn btn-small btn-danger support-admin-delete" data-uid="${u.uid}">Delete</button>
+                                ${u.uid !== currentUser?.uid && u.role !== "super_admin" ? `
+                                    ${u.role === "support_admin" ? `<button type="button" class="btn btn-small btn-secondary user-reset-pwd" data-uid="${u.uid}">Reset Password</button>` : ""}
+                                    ${u.status === "disabled" ? `<button type="button" class="btn btn-small btn-secondary user-enable" data-uid="${u.uid}">Enable</button>` : `<button type="button" class="btn btn-small btn-secondary user-disable" data-uid="${u.uid}">Disable</button>`}
+                                    ${u.role === "support_admin" ? `<button type="button" class="btn btn-small btn-danger user-delete" data-uid="${u.uid}">Delete</button>` : ""}
                                 ` : "-"}
                             </td>
                         </tr>
@@ -119,13 +180,23 @@ async function loadSupportAdminsPage() {
                 </tbody>
             </table>
         `;
-        listEl.querySelectorAll(".support-admin-reset-pwd").forEach((btn) => btn.addEventListener("click", () => resetSupportAdminPassword(btn.dataset.uid)));
-        listEl.querySelectorAll(".support-admin-disable").forEach((btn) => btn.addEventListener("click", () => disableSupportAdmin(btn.dataset.uid)));
-        listEl.querySelectorAll(".support-admin-enable").forEach((btn) => btn.addEventListener("click", () => enableSupportAdmin(btn.dataset.uid)));
-        listEl.querySelectorAll(".support-admin-delete").forEach((btn) => btn.addEventListener("click", () => deleteSupportAdmin(btn.dataset.uid)));
+        wrap.querySelectorAll(".user-reset-pwd").forEach((btn) => btn.addEventListener("click", () => resetSupportAdminPassword(btn.dataset.uid)));
+        wrap.querySelectorAll(".user-disable").forEach((btn) => btn.addEventListener("click", () => disableSupportAdmin(btn.dataset.uid)));
+        wrap.querySelectorAll(".user-enable").forEach((btn) => btn.addEventListener("click", () => enableSupportAdmin(btn.dataset.uid)));
+        wrap.querySelectorAll(".user-delete").forEach((btn) => btn.addEventListener("click", () => deleteSupportAdmin(btn.dataset.uid)));
     } catch (e) {
-        listEl.innerHTML = `<p class="error-message">${e.message || "Failed to load"}</p>`;
+        wrap.innerHTML = `<p class="error-message">${e.message || "Failed to load"}</p>`;
     }
+}
+
+function openAddUserModal() {
+    document.getElementById("add-user-form").reset();
+    document.getElementById("add-user-role").value = "support_admin";
+    document.getElementById("add-user-modal").classList.add("active");
+}
+
+function closeAddUserModal() {
+    document.getElementById("add-user-modal").classList.remove("active");
 }
 
 async function resetSupportAdminPassword(uid) {
@@ -134,7 +205,7 @@ async function resetSupportAdminPassword(uid) {
     try {
         await apiRequest("/admin/reset-support-admin-password", { method: "POST", body: JSON.stringify({ uid, new_password: newPassword }) });
         showSuccess("Password reset. User must change on next login.");
-        loadSupportAdminsPage();
+        loadUserManagementPage();
     } catch (e) { showError(e.message || "Failed"); }
 }
 
@@ -143,7 +214,7 @@ async function disableSupportAdmin(uid) {
     try {
         await apiRequest(`/admin/disable-support-admin/${uid}`, { method: "PUT" });
         showSuccess("User disabled.");
-        loadSupportAdminsPage();
+        loadUserManagementPage();
     } catch (e) { showError(e.message || "Failed"); }
 }
 
@@ -151,7 +222,7 @@ async function enableSupportAdmin(uid) {
     try {
         await apiRequest(`/admin/enable-support-admin/${uid}`, { method: "PUT" });
         showSuccess("User enabled.");
-        loadSupportAdminsPage();
+        loadUserManagementPage();
     } catch (e) { showError(e.message || "Failed"); }
 }
 
@@ -160,7 +231,7 @@ async function deleteSupportAdmin(uid) {
     try {
         await apiRequest(`/admin/support-admin/${uid}`, { method: "DELETE" });
         showSuccess("User deleted.");
-        loadSupportAdminsPage();
+        loadUserManagementPage();
     } catch (e) { showError(e.message || "Failed"); }
 }
 
@@ -171,13 +242,6 @@ async function loadSettingsPage() {
     try {
         let org = null;
         try { org = await apiRequest("/organization"); } catch (_) {}
-        let users = [];
-        if (org) {
-            try {
-                const usersData = await apiRequest("/admin/users");
-                users = usersData.users || [];
-            } catch (_) {}
-        }
 
         content.innerHTML = `
             <div class="card">
@@ -217,45 +281,6 @@ async function loadSettingsPage() {
                     </form>
                 </div>
             </div>
-            <div class="card">
-                <div class="card-header"><h2>User Management</h2></div>
-                <div class="card-body">
-                    <h3 style="margin-top: 0;">Create Support Admin</h3>
-                    <form id="settings-create-support-admin" class="form-inline" style="margin-bottom: 24px;">
-                        <input type="text" id="settings-support-admin-name" placeholder="Full Name" required>
-                        <input type="email" id="settings-support-admin-email" placeholder="Email" required>
-                        <input type="password" id="settings-support-admin-password" placeholder="Temporary password" required minlength="6">
-                        <button type="submit" class="btn btn-primary">Create Support Admin</button>
-                    </form>
-                    <h3>Create Employee</h3>
-                    <form id="settings-create-employee" class="form-inline" style="margin-bottom: 24px;">
-                        <input type="text" id="settings-employee-name" placeholder="Full Name" required>
-                        <input type="email" id="settings-employee-email" placeholder="Email" required>
-                        <input type="password" id="settings-employee-password" placeholder="Temporary password" required minlength="6">
-                        <button type="submit" class="btn btn-primary">Create Employee</button>
-                    </form>
-                    <h3>Organization Users</h3>
-                    <table class="data-table">
-                        <thead><tr><th>Full Name</th><th>Email</th><th>Role</th><th>Status</th><th>Last login</th><th>Actions</th></tr></thead>
-                        <tbody>
-                            ${users.map((u) => `
-                                <tr>
-                                    <td>${escapeHtml(u.full_name || u.name || "")}</td>
-                                    <td>${escapeHtml(u.email || "")}</td>
-                                    <td><span class="badge badge-info">${u.role}</span></td>
-                                    <td>${u.status === "disabled" ? "<span class=\"badge badge-danger\">Disabled</span>" : "Active"}</td>
-                                    <td>${u.last_login ? new Date(u.last_login).toLocaleString() : "-"}</td>
-                                    <td>
-                                        ${u.role !== "super_admin" && u.uid !== currentUser?.uid ? `
-                                            ${u.status === "disabled" ? `<button type="button" class="btn btn-small support-admin-enable" data-uid="${u.uid}">Enable</button>` : `<button type="button" class="btn btn-small support-admin-disable" data-uid="${u.uid}">Disable</button>`}
-                                        ` : "-"}
-                                    </td>
-                                </tr>
-                            `).join("")}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
         `;
 
         const updateOrgForm = content.querySelector("#update-org-form");
@@ -291,36 +316,6 @@ async function loadSettingsPage() {
                 changePwdForm.reset();
             } catch (err) { showError(err.message || "Failed"); }
         });
-        content.querySelectorAll(".support-admin-disable").forEach((btn) => btn.addEventListener("click", () => disableSupportAdmin(btn.dataset.uid)));
-        content.querySelectorAll(".support-admin-enable").forEach((btn) => btn.addEventListener("click", () => enableSupportAdmin(btn.dataset.uid)));
-        const createSupportAdminForm = content.querySelector("#settings-create-support-admin");
-        if (createSupportAdminForm) createSupportAdminForm.addEventListener("submit", async (e) => {
-            e.preventDefault();
-            const fullName = content.querySelector("#settings-support-admin-name")?.value?.trim();
-            const email = content.querySelector("#settings-support-admin-email")?.value?.trim();
-            const password = content.querySelector("#settings-support-admin-password")?.value;
-            if (!fullName || !email || !password) return;
-            try {
-                await apiRequest("/admin/create-support-admin", { method: "POST", body: JSON.stringify({ full_name: fullName, email, temporary_password: password }) });
-                showSuccess("Support admin created. User must change password on first login.");
-                createSupportAdminForm.reset();
-                loadSettingsPage();
-            } catch (err) { showError(err.message || "Failed"); }
-        });
-        const createEmployeeForm = content.querySelector("#settings-create-employee");
-        if (createEmployeeForm) createEmployeeForm.addEventListener("submit", async (e) => {
-            e.preventDefault();
-            const fullName = content.querySelector("#settings-employee-name")?.value?.trim();
-            const email = content.querySelector("#settings-employee-email")?.value?.trim();
-            const password = content.querySelector("#settings-employee-password")?.value;
-            if (!fullName || !email || !password) return;
-            try {
-                await apiRequest("/admin/create-employee", { method: "POST", body: JSON.stringify({ full_name: fullName, email, temporary_password: password }) });
-                showSuccess("Employee created. User must change password on first login.");
-                createEmployeeForm.reset();
-                loadSettingsPage();
-            } catch (err) { showError(err.message || "Failed"); }
-        });
     } catch (e) {
         content.innerHTML = `<p class="error-message">${e.message || "Failed to load settings"}</p>`;
     }
@@ -345,6 +340,9 @@ async function loadSettingsPage() {
             window.location.href = "change-password.html";
             return;
         }
+
+        fetchUnreadCount();
+        window._adminUnreadPoll = setInterval(fetchUnreadCount, 10000);
 
         const sidebarEl = document.getElementById("admin-sidebar");
         if (sidebarEl) {
@@ -598,30 +596,41 @@ document.getElementById('add-article-save-btn')?.addEventListener('click', async
 
 document.getElementById('kb-add-new-btn')?.addEventListener('click', openAddArticleModal);
 
-// Create support admin (super_admin only)
-const createSupportAdminForm = document.getElementById('create-support-admin-form');
-if (createSupportAdminForm) {
-    createSupportAdminForm.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const full_name = document.getElementById('support-admin-full-name').value.trim();
-        const email = document.getElementById('support-admin-email').value.trim();
-        const temporary_password = document.getElementById('support-admin-password').value;
-        if (!full_name) {
-            showError('Full name is required');
-            return;
-        }
-        try {
+// User Management: Add New User button and modal submit (super_admin only)
+document.getElementById('user-mgmt-add-btn')?.addEventListener('click', openAddUserModal);
+document.getElementById('add-user-save-btn')?.addEventListener('click', async () => {
+    const fullName = document.getElementById('add-user-full-name')?.value?.trim();
+    const email = document.getElementById('add-user-email')?.value?.trim();
+    const password = document.getElementById('add-user-password')?.value;
+    const role = document.getElementById('add-user-role')?.value;
+    if (!fullName || !email || !password || password.length < 6) {
+        showError('Full name, email, and password (min 6 characters) are required.');
+        return;
+    }
+    const btn = document.getElementById('add-user-save-btn');
+    if (btn) btn.disabled = true;
+    try {
+        if (role === 'support_admin') {
             await apiRequest('/admin/create-support-admin', {
                 method: 'POST',
-                body: JSON.stringify({ full_name, email, temporary_password })
+                body: JSON.stringify({ full_name: fullName, email, temporary_password: password })
             });
             showSuccess('Support admin created. They must change password on first login.');
-            createSupportAdminForm.reset();
-        } catch (err) {
-            showError(err.message || 'Failed to create support admin');
+        } else {
+            await apiRequest('/admin/create-employee', {
+                method: 'POST',
+                body: JSON.stringify({ full_name: fullName, email, temporary_password: password })
+            });
+            showSuccess('Employee created.');
         }
-    });
-}
+        closeAddUserModal();
+        loadUserManagementPage();
+    } catch (err) {
+        showError(err.message || 'Failed to create user');
+    } finally {
+        if (btn) btn.disabled = false;
+    }
+});
 
 // Store loaded articles for event delegation (View/Delete by data-article-id)
 let currentArticles = [];
@@ -946,35 +955,36 @@ async function loadAllTickets() {
         
         ticketsList.innerHTML = tickets.map(ticket => {
             const unreadCount = ticket.unreadCount || 0;
-            const statusClass = ticket.status === 'closed' || ticket.status === 'resolved' || ticket.status === 'auto_resolved' ? 'badge-success' : 
-                               ticket.status === 'ai_responded' || ticket.status === 'in_progress' || ticket.status === 'awaiting_confirmation' ? 'badge-info' :
-                               ticket.status === 'escalated' ? 'badge-warning' : 'badge-neutral';
-            
+            const statusDot = getTicketStatusDot(ticket);
+            const title = (ticket.summary || ticket.message || "No subject").trim();
+            const titleShort = title.length > 60 ? title.substring(0, 60) + "…" : title;
+            const orgName = ticket.organization_name || "—";
+            const userName = ticket.created_by_name || "Customer";
+            const assignedLabel = ticket.assigned_to_name || (ticket.assigned_to ? "Assigned" : "Unassigned");
+            const msgs = ticket.messages || [];
+            const lastMsg = msgs.length > 0 ? msgs[msgs.length - 1] : null;
+            const lastMsgText = lastMsg ? (lastMsg.text || lastMsg.content || "").trim() : (ticket.message || "").trim();
+            const lastMsgShort = lastMsgText.length > 50 ? lastMsgText.substring(0, 50) + "…" : lastMsgText || "—";
+            const lastTime = lastMsg && (lastMsg.created_at || lastMsg.createdAt) ? (lastMsg.created_at || lastMsg.createdAt) : ticket.createdAt;
+            const timeAgo = lastTime ? timeAgoStr(lastTime) : "—";
             return `
-            <div class="ticket-card status-${ticket.status}" data-ticket-id="${ticket.id}">
-                <div class="ticket-header">
-                    <div style="flex: 1;">
-                        <div style="display: flex; align-items: center; gap: 8px;">
-                            <div class="ticket-id">Ticket #${ticket.id.substring(0, 8)}</div>
-                            ${unreadCount > 0 ? `<span class="notification-badge">${unreadCount > 99 ? '99+' : unreadCount}</span>` : ''}
-                        </div>
-                        <div style="display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap;">
-                            <span class="badge ${statusClass}">${ticket.status.replace('_', ' ').toUpperCase()}</span>
-                            ${ticket.category ? `<span class="badge badge-neutral">${ticket.category}</span>` : ''}
-                        </div>
+            <div class="ticket-list-row ticket-card status-${ticket.status}" data-ticket-id="${ticket.id}">
+                <span class="ticket-row-dot ${statusDot}"></span>
+                <div class="ticket-row-main">
+                    <div class="ticket-row-line1">
+                        <span class="ticket-row-title">${escapeHtml(titleShort)}</span>
+                        <span class="ticket-row-org">${escapeHtml(orgName)}</span>
+                    </div>
+                    <div class="ticket-row-line2">
+                        <span class="ticket-row-user">${escapeHtml(userName)}</span>
+                        <span class="ticket-row-assigned">${escapeHtml(assignedLabel)}</span>
+                    </div>
+                    <div class="ticket-row-line3">
+                        <span class="ticket-row-preview">${escapeHtml(lastMsgShort)}</span>
+                        <span class="ticket-row-time">${timeAgo}</span>
                     </div>
                 </div>
-                ${ticket.summary ? `<div class="ticket-summary">${escapeHtml(ticket.summary)}</div>` : ''}
-                <div class="ticket-message">
-                    <strong>User:</strong> ${ticket.userId ? ticket.userId.substring(0, 8) + '...' : 'Unknown'}<br>
-                    <strong>Message:</strong> ${escapeHtml(ticket.message.length > 150 ? ticket.message.substring(0, 150) + '...' : ticket.message)}
-                </div>
-                <div class="ticket-meta">
-                    <div class="ticket-meta-item">
-                        <span>📅</span>
-                        <span>${new Date(ticket.createdAt).toLocaleString()}</span>
-                    </div>
-                </div>
+                ${unreadCount > 0 ? `<span class="ticket-row-unread">${unreadCount > 99 ? "99+" : unreadCount}</span>` : ""}
             </div>
         `;
         }).join('');
@@ -995,23 +1005,113 @@ function updateStatistics(stats) {
         statTotal.setAttribute('data-value', stats.total);
         statTotal.textContent = stats.total;
     }
-    
     const statResolved = document.getElementById('stat-resolved');
     if (statResolved) {
         statResolved.setAttribute('data-value', stats.resolved);
         statResolved.textContent = stats.resolved;
     }
-    
     const statEscalated = document.getElementById('stat-escalated');
     if (statEscalated) {
         statEscalated.setAttribute('data-value', stats.escalated);
         statEscalated.textContent = stats.escalated;
     }
-    
     const statInProgress = document.getElementById('stat-in-progress');
     if (statInProgress) {
         statInProgress.setAttribute('data-value', stats.in_progress);
         statInProgress.textContent = stats.in_progress;
+    }
+}
+
+let dashboardPieChart = null;
+let dashboardBarChart = null;
+
+function updateDashboardCharts(tickets) {
+    const ChartLib = typeof window !== "undefined" && window.Chart;
+    if (!ChartLib) return;
+
+    const resolved = tickets.filter((t) => t.status === "closed" || t.status === "resolved" || t.status === "auto_resolved").length;
+    const inProgress = tickets.filter((t) => t.status === "in_progress").length;
+    const escalated = tickets.filter((t) => t.escalated === true).length;
+    const open = tickets.filter((t) => {
+        const s = (t.status || "").toLowerCase();
+        const isResolved = s === "closed" || s === "resolved" || s === "auto_resolved";
+        const isInProgress = s === "in_progress";
+        return !isResolved && !isInProgress && !t.escalated;
+    }).length;
+
+    const pieCtx = document.getElementById("dashboard-pie-chart");
+    if (pieCtx) {
+        if (dashboardPieChart) {
+            dashboardPieChart.destroy();
+            dashboardPieChart = null;
+        }
+        dashboardPieChart = new ChartLib(pieCtx, {
+            type: "doughnut",
+            data: {
+                labels: ["Resolved", "In Progress", "Escalated", "Open"],
+                datasets: [{
+                    data: [resolved, inProgress, escalated, open],
+                    backgroundColor: ["#22c55e", "#eab308", "#ef4444", "#3b82f6"],
+                    borderWidth: 0,
+                }],
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { position: "bottom" },
+                },
+            },
+        });
+    }
+
+    const barCtx = document.getElementById("dashboard-bar-chart");
+    if (barCtx) {
+        const now = new Date();
+        const days = [];
+        const counts = [];
+        for (let i = 6; i >= 0; i--) {
+            const d = new Date(now);
+            d.setDate(d.getDate() - i);
+            d.setHours(0, 0, 0, 0);
+            days.push(d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }));
+            const dayStart = d.getTime();
+            const dayEnd = dayStart + 24 * 60 * 60 * 1000;
+            const count = tickets.filter((t) => {
+                const created = t.created_at || t.createdAt || t.created;
+                if (!created) return false;
+                const ts = typeof created === "number" ? created : new Date(created).getTime();
+                return ts >= dayStart && ts < dayEnd;
+            }).length;
+            counts.push(count);
+        }
+        if (dashboardBarChart) {
+            dashboardBarChart.destroy();
+            dashboardBarChart = null;
+        }
+        dashboardBarChart = new ChartLib(barCtx, {
+            type: "bar",
+            data: {
+                labels: days,
+                datasets: [{
+                    label: "Tickets",
+                    data: counts,
+                    backgroundColor: "rgba(99, 102, 241, 0.7)",
+                    borderColor: "rgb(99, 102, 241)",
+                    borderWidth: 1,
+                }],
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: { beginAtZero: true, ticks: { stepSize: 1 } },
+                },
+                plugins: {
+                    legend: { display: false },
+                },
+            },
+        });
     }
 }
 
@@ -1590,12 +1690,10 @@ async function openTicketModal(ticketId) {
             conversationThread.scrollTop = conversationThread.scrollHeight;
         }
         
-        // Mark messages as read when viewing (admin sees unread user messages)
+        // Mark messages as read when viewing (recipient-aware)
         try {
-            await apiRequest(`/tickets/${ticketId}/messages/read`, {
-                method: 'POST'
-            });
-            // Reload tickets to update unread counts and message icon badge
+            await apiRequest(`/messages/mark-read/${ticketId}`, { method: "POST" });
+            fetchUnreadCount();
             await loadAllTickets();
             loadEscalatedTickets();
         } catch (error) {
@@ -1667,4 +1765,22 @@ function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
+}
+
+/** Status dot class for compact ticket list: resolved=green, in_progress=yellow, escalated=red, open=blue */
+function getTicketStatusDot(ticket) {
+    if (ticket.status === "closed" || ticket.status === "resolved" || ticket.status === "auto_resolved") return "dot-resolved";
+    if (ticket.escalated === true) return "dot-escalated";
+    if (ticket.status === "in_progress") return "dot-in-progress";
+    return "dot-open";
+}
+
+function timeAgoStr(isoOrTimestamp) {
+    const date = typeof isoOrTimestamp === "number" ? new Date(isoOrTimestamp) : new Date(isoOrTimestamp);
+    const sec = Math.floor((Date.now() - date.getTime()) / 1000);
+    if (sec < 60) return "just now";
+    if (sec < 3600) return Math.floor(sec / 60) + "m ago";
+    if (sec < 86400) return Math.floor(sec / 3600) + "h ago";
+    if (sec < 604800) return Math.floor(sec / 86400) + "d ago";
+    return date.toLocaleDateString();
 }

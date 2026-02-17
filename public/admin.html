@@ -24,36 +24,43 @@
                     <h1>Dashboard</h1>
                     <p class="subtitle" id="dashboard-welcome">Overview of your helpdesk</p>
                 </div>
-                <div class="stats-grid" id="dashboard-stats">
-                    <div class="stat-card" data-filter="all">
-                        <div class="stat-icon">📋</div>
+                <div class="dashboard-summary-cards stats-grid" id="dashboard-stats">
+                    <div class="stat-card stat-card-sm" data-filter="all">
                         <div class="stat-value" id="stat-total">0</div>
-                        <div class="stat-label">All Tickets</div>
+                        <div class="stat-label">Total Tickets</div>
                     </div>
-                    <div class="stat-card" data-filter="resolved">
-                        <div class="stat-icon">✅</div>
+                    <div class="stat-card stat-card-sm" data-filter="resolved">
                         <div class="stat-value" id="stat-resolved">0</div>
                         <div class="stat-label">Resolved</div>
                     </div>
-                    <div class="stat-card" data-filter="escalated">
-                        <div class="stat-icon">⚠️</div>
-                        <div class="stat-value" id="stat-escalated">0</div>
-                        <div class="stat-label">Escalated</div>
-                    </div>
-                    <div class="stat-card" data-filter="in_progress">
-                        <div class="stat-icon">🔄</div>
+                    <div class="stat-card stat-card-sm" data-filter="in_progress">
                         <div class="stat-value" id="stat-in-progress">0</div>
                         <div class="stat-label">In Progress</div>
                     </div>
-                </div>
-                <div class="card">
-                    <div class="card-header">
-                        <h2>Quick actions</h2>
+                    <div class="stat-card stat-card-sm" data-filter="escalated">
+                        <div class="stat-value" id="stat-escalated">0</div>
+                        <div class="stat-label">Escalated</div>
                     </div>
-                    <div class="card-body" style="display: flex; flex-wrap: wrap; gap: 12px;">
-                        <a href="#tickets" class="btn btn-primary">View All Tickets</a>
-                        <a href="#knowledge-base" class="btn btn-secondary">Knowledge Base</a>
-                        <a href="#knowledge-base/add" class="btn btn-secondary">Add Article</a>
+                </div>
+                <div class="dashboard-charts">
+                    <div class="card dashboard-chart-card">
+                        <div class="card-header"><h2>Status breakdown</h2></div>
+                        <div class="card-body">
+                            <canvas id="dashboard-pie-chart" height="220"></canvas>
+                        </div>
+                    </div>
+                    <div class="card dashboard-chart-card">
+                        <div class="card-header"><h2>Tickets last 7 days</h2></div>
+                        <div class="card-body">
+                            <canvas id="dashboard-bar-chart" height="220"></canvas>
+                        </div>
+                    </div>
+                </div>
+                <div class="card dashboard-quick-actions">
+                    <div class="card-body" style="display: flex; flex-wrap: wrap; gap: 8px;">
+                        <a href="#tickets" class="btn btn-primary btn-sm">View All Tickets</a>
+                        <a href="#knowledge-base" class="btn btn-secondary btn-sm">Knowledge Base</a>
+                        <a href="#knowledge-base/add" class="btn btn-secondary btn-sm">Add Article</a>
                     </div>
                 </div>
             </section>
@@ -138,31 +145,24 @@
                 </div>
             </section>
 
-            <!-- Support Admins page (super_admin only) -->
-            <section class="admin-page" data-page="support-admins" id="page-support-admins">
-                <div class="admin-page-header">
-                    <h1>Support Admins</h1>
-                    <p class="subtitle">Manage support admin accounts</p>
+            <!-- User Management page (super_admin only) -->
+            <section class="admin-page" data-page="users" id="page-users">
+                <div class="admin-page-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+                    <div>
+                        <h1>User Management</h1>
+                        <p class="subtitle">Support admins and employees</p>
+                    </div>
+                    <button type="button" id="user-mgmt-add-btn" class="btn btn-primary">+ Add New User</button>
                 </div>
                 <div class="card">
                     <div class="card-header">
-                        <h2>Add Support Admin</h2>
+                        <div class="tab-buttons" id="user-mgmt-tabs">
+                            <button type="button" class="tab-btn active" data-tab="support_admins">Support Admins</button>
+                            <button type="button" class="tab-btn" data-tab="employees">Employees</button>
+                        </div>
                     </div>
                     <div class="card-body">
-                        <form id="create-support-admin-form" class="form-inline">
-                            <input type="text" id="support-admin-full-name" placeholder="Full Name" required>
-                            <input type="email" id="support-admin-email" placeholder="Email" required>
-                            <input type="password" id="support-admin-password" placeholder="Temporary password" required minlength="6">
-                            <button type="submit" class="btn btn-primary">Create</button>
-                        </form>
-                    </div>
-                </div>
-                <div class="card">
-                    <div class="card-header">
-                        <h2>Support admins</h2>
-                    </div>
-                    <div class="card-body">
-                        <div id="support-admins-list">
+                        <div id="user-mgmt-table-wrap">
                             <div class="loading">Loading...</div>
                         </div>
                     </div>
@@ -287,6 +287,43 @@
         </div>
     </div>
 
+    <!-- Add User Modal (Super Admin only) -->
+    <div id="add-user-modal" class="modal-overlay">
+        <div class="modal">
+            <div class="modal-header">
+                <h2>Add New User</h2>
+                <button type="button" class="modal-close modal-close-btn" data-modal="add-user-modal" aria-label="Close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="add-user-form">
+                    <div class="form-group">
+                        <label for="add-user-full-name">Full Name</label>
+                        <input type="text" id="add-user-full-name" required placeholder="Full name">
+                    </div>
+                    <div class="form-group">
+                        <label for="add-user-email">Email</label>
+                        <input type="email" id="add-user-email" required placeholder="email@example.com">
+                    </div>
+                    <div class="form-group">
+                        <label for="add-user-password">Password</label>
+                        <input type="password" id="add-user-password" required minlength="6" placeholder="Temporary password (min 6 characters)">
+                    </div>
+                    <div class="form-group">
+                        <label for="add-user-role">Role</label>
+                        <select id="add-user-role">
+                            <option value="support_admin">Support Admin</option>
+                            <option value="employee">Employee</option>
+                        </select>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary modal-close-btn" data-modal="add-user-modal">Cancel</button>
+                <button type="button" id="add-user-save-btn" class="btn btn-primary">Create User</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Ticket Detail Modal -->
     <div id="ticket-modal" class="modal-overlay">
         <div class="modal" style="max-width: 900px;">
@@ -308,6 +345,7 @@
         </div>
     </div>
 
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
     <script src="./config.js"></script>
     <script type="module" src="./admin.js"></script>
 </body>

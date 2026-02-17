@@ -18,6 +18,7 @@ document.getElementById("register-form").addEventListener("submit", async (e) =>
   const organizationCode = (document.getElementById("organization-code")?.value || "").trim();
   const email = document.getElementById("register-email").value;
   const password = document.getElementById("register-password").value;
+  const passwordConfirm = document.getElementById("register-password-confirm")?.value;
   const errorMessage = document.getElementById("error-message");
   const successMessage = document.getElementById("success-message");
   errorMessage.style.display = "none";
@@ -25,7 +26,12 @@ document.getElementById("register-form").addEventListener("submit", async (e) =>
 
   if (!organizationName || !organizationCode || !superAdminName || !email || !password) {
     errorMessage.textContent = "All fields are required.";
-    errorMessage.style.display = "flex";
+    errorMessage.style.display = "block";
+    return;
+  }
+  if (password !== passwordConfirm) {
+    errorMessage.textContent = "Password and Confirm password do not match.";
+    errorMessage.style.display = "block";
     return;
   }
 
@@ -44,17 +50,17 @@ document.getElementById("register-form").addEventListener("submit", async (e) =>
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
       errorMessage.textContent = getErrorMessage(data.detail);
-      errorMessage.style.display = "flex";
+      errorMessage.style.display = "block";
       return;
     }
     setToken(data.token);
     successMessage.textContent = "Organization created. Redirecting...";
-    successMessage.style.display = "flex";
+    successMessage.style.display = "block";
     setTimeout(() => {
       window.location.href = "admin.html";
     }, 1500);
   } catch (err) {
     errorMessage.textContent = err.message || "Registration failed.";
-    errorMessage.style.display = "flex";
+    errorMessage.style.display = "block";
   }
 });

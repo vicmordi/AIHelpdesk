@@ -46,6 +46,43 @@ def humanize_reply(text: str) -> str:
     return (text or "").strip()
 
 
+def _message_payload(
+    sender: str,
+    message: str,
+    created_at: str,
+    is_read: bool,
+    ticket_user_id: str,
+    assigned_to: Optional[str],
+    *,
+    sender_id: Optional[str] = None,
+    sender_name: Optional[str] = None,
+    sender_role: Optional[str] = None,
+) -> dict:
+    """Build message dict with recipient_id and sender_role for unread notifications."""
+    if sender == "user":
+        recipient_id = assigned_to
+        role = "USER"
+    elif sender == "admin":
+        recipient_id = ticket_user_id
+        role = (sender_role or "SUPPORT_ADMIN").replace("super_admin", "SUPER_ADMIN").replace("support_admin", "SUPPORT_ADMIN")
+    else:
+        recipient_id = ticket_user_id
+        role = "AI"
+    out = {
+        "sender": sender,
+        "message": message,
+        "createdAt": created_at,
+        "isRead": is_read,
+        "recipient_id": recipient_id,
+        "sender_role": role,
+    }
+    if sender_id is not None:
+        out["sender_id"] = sender_id
+    if sender_name is not None:
+        out["sender_name"] = sender_name
+    return out
+
+
 # Strict KB-only prompt: OpenAI may ONLY use the provided article (Step 2)
 KB_ONLY_SYSTEM = """You are a friendly, professional IT helpdesk agent. You speak naturally and supportively.
 You may ONLY answer using the provided knowledge base article. You are strictly forbidden from using external knowledge.
@@ -520,15 +557,10 @@ async def create_ticket(
             d = user_doc.to_dict() or {}
             user_name = d.get("full_name") or d.get("email") or "Customer"
         messages = [
-            {
-                "sender": "user",
-                "message": ticket.message,
-                "createdAt": now_iso,
-                "isRead": True,
-                "sender_id": uid,
-                "sender_name": user_name,
-                "sender_role": "user",
-            }
+            _message_payload(
+                "user", ticket.message, now_iso, True, uid, None,
+                sender_id=uid, sender_name=user_name, sender_role="USER",
+            )
         ]
         ticket_data = None
 
@@ -544,12 +576,7 @@ async def create_ticket(
             if not best_article or score < MIN_SCORE_THRESHOLD:
                 # No KB article found: escalate. Do NOT mark escalated when article exists.
                 print("KB article found:", False)
-                messages.append({
-                    "sender": "ai",
-                    "message": NO_KB_FOUND_MSG,
-                    "createdAt": now_iso,
-                    "isRead": False,
-                })
+                messages.append(_message_payload("ai", NO_KB_FOUND_MSG, now_iso, False, uid, None))
                 summary = (ticket.message[:200] + "..." if len(ticket.message) > 200 else ticket.message)
                 ai_summary = _build_ai_internal_summary(
                     ticket.message, messages, article_title=None,
@@ -587,9 +614,9 @@ async def create_ticket(
                 full_article_content = (best_article.get("content") or best_article.get("title") or "").strip()
                 if not full_article_content:
                     full_article_content = best_article.get("title") or "No content available."
-                messages.append({"sender": "ai", "message": INTRO_MSG, "createdAt": now_iso, "isRead": False})
-                messages.append({"sender": "ai", "message": full_article_content, "createdAt": now_iso, "isRead": False})
-                messages.append({"sender": "ai", "message": CONFIRMATION_PROMPT, "createdAt": now_iso, "isRead": False})
+                messages.append(_message_payload("ai", INTRO_MSG, now_iso, False, uid, None))
+                messages.append(_message_payload("ai", full_article_content, now_iso, False, uid, None))
+                messages.append(_message_payload("ai", CONFIRMATION_PROMPT, now_iso, False, uid, None))
                 log_flow_event("article_selection", article_id=best_article.get("id"), title=best_article.get("title"))
                 ticket_data = {
                     "userId": uid,
@@ -616,12 +643,7 @@ async def create_ticket(
                 print("Ticket status after creation:", ticket_data["status"])
         except Exception as e:
             print("AI processing error:", str(e))
-            messages.append({
-                "sender": "ai",
-                "message": NO_KB_FOUND_MSG,
-                "createdAt": now_iso,
-                "isRead": False,
-            })
+            messages.append(_message_payload("ai", NO_KB_FOUND_MSG, now_iso, False, uid, None))
             summary_fallback = (ticket.message[:200] + "..." if len(ticket.message) > 200 else ticket.message)
             ai_summary = _build_ai_internal_summary(
                 ticket.message, messages, article_title=None,
@@ -653,7 +675,7 @@ async def create_ticket(
             }
 
         if ticket_data is None:
-            messages.append({"sender": "ai", "message": NO_KB_FOUND_MSG, "createdAt": now_iso, "isRead": False})
+            messages.append(_message_payload("ai", NO_KB_FOUND_MSG, now_iso, False, uid, None))
             summary_fallback = (ticket.message[:200] + "..." if len(ticket.message) > 200 else ticket.message)
             ai_summary = _build_ai_internal_summary(
                 ticket.message, messages, article_title=None,
@@ -1114,17 +1136,21 @@ async def add_message_to_ticket(
             raise HTTPException(status_code=403, detail="You can only send messages on tickets assigned to you")
 
         messages = ticket_data.get("messages", [])
+        now_iso = datetime.utcnow().isoformat()
         is_read = (message_request.sender == "user")
-        new_message = {
-            "sender": message_request.sender,
-            "message": message_request.message,
-            "createdAt": datetime.utcnow().isoformat(),
-            "isRead": is_read
-        }
-        if is_admin:
-            new_message["sender_id"] = uid
-            new_message["sender_name"] = current_user.get("name") or current_user.get("email") or "Admin"
-            new_message["sender_role"] = role
+        ticket_user_id = ticket_data.get("userId") or ""
+        assigned_to = ticket_data.get("assigned_to")
+        new_message = _message_payload(
+            message_request.sender,
+            message_request.message,
+            now_iso,
+            is_read,
+            ticket_user_id,
+            assigned_to,
+            sender_id=uid if is_admin else None,
+            sender_name=(current_user.get("name") or current_user.get("email") or "Admin") if is_admin else None,
+            sender_role=role if is_admin else "USER",
+        )
         messages.append(new_message)
 
         # Support flow: first admin reply when ESCALATED → status IN_PROGRESS
@@ -1187,7 +1213,7 @@ async def add_message_to_ticket(
             # YES / solved / fixed / resolved → close ticket (status=CLOSED, mode=AI)
             if msg_lower in ("yes", "y", "yeah", "sure") or any(p in msg_lower for p in ("solved", "fixed", "resolved", "it worked", "working", "all good", "thank you", "thanks")):
                 ai_reply = RESOLVED_REPLY
-                messages.append({"sender": "ai", "message": ai_reply, "createdAt": now_iso, "isRead": False})
+                messages.append(_message_payload("ai", ai_reply, now_iso, False, ticket_user_id, assigned_to))
                 ticket_ref.update({
                     "messages": messages,
                     "status": "closed",
@@ -1200,7 +1226,7 @@ async def add_message_to_ticket(
             # NO / not working / escalate → escalate to human
             if msg_lower in ("no", "n") or _is_dissatisfaction(user_msg) or any(p in msg_lower for p in ("not working", "still broken", "didn't help", "escalate")):
                 ai_reply = ESCALATE_REPLY
-                messages.append({"sender": "ai", "message": ai_reply, "createdAt": now_iso, "isRead": False})
+                messages.append(_message_payload("ai", ai_reply, now_iso, False, ticket_user_id, assigned_to))
                 article_title = (ticket_data.get("knowledge_used") or [None])[0] if ticket_data.get("knowledge_used") else None
                 ai_summary = _build_ai_internal_summary(
                     ticket_data.get("message", ""),
@@ -1228,7 +1254,7 @@ async def add_message_to_ticket(
         ):
             now_iso = datetime.utcnow().isoformat()
             escalation_msg = ESCALATE_REPLY
-            messages.append({"sender": "ai", "message": escalation_msg, "createdAt": now_iso, "isRead": False})
+            messages.append(_message_payload("ai", escalation_msg, now_iso, False, ticket_user_id, assigned_to))
             article_title = (ticket_data.get("knowledge_used") or [None])[0] if ticket_data.get("knowledge_used") else None
             ai_summary = _build_ai_internal_summary(
                 ticket_data.get("message", ""),
@@ -1283,7 +1309,22 @@ async def mark_messages_as_read(
             raise HTTPException(status_code=403, detail="You can only mark messages as read on your own tickets")
 
         messages = ticket_data.get("messages", [])
-        updated_messages = [dict(m, isRead=True) for m in messages]
+        ticket_user_id = ticket_data.get("userId") or ""
+        assigned_to = ticket_data.get("assigned_to")
+        updated_messages = []
+        for m in messages:
+            rec = m.get("recipient_id")
+            if rec is not None:
+                updated_messages.append({**m, "isRead": True} if rec == uid else m)
+            else:
+                # Legacy: mark read for the appropriate party
+                sender = m.get("sender", "")
+                if sender == "user" and (assigned_to == uid or not assigned_to):
+                    updated_messages.append({**m, "isRead": True})
+                elif sender in ("admin", "ai") and ticket_user_id == uid:
+                    updated_messages.append({**m, "isRead": True})
+                else:
+                    updated_messages.append(m)
         ticket_ref.update({"messages": updated_messages})
         return {"message": "Messages marked as read", "ticket_id": ticket_id}
     except HTTPException:
@@ -1337,15 +1378,15 @@ async def update_ticket_status(
             messages = list(ticket_data.get("messages") or [])
             uid = current_user["uid"]
             role = current_user.get("role") or "support_admin"
-            messages.append({
-                "sender": "admin",
-                "message": SUPPORT_CONFIRMATION_MSG,
-                "createdAt": datetime.utcnow().isoformat(),
-                "isRead": False,
-                "sender_id": uid,
-                "sender_name": current_user.get("name") or current_user.get("email") or "Support",
-                "sender_role": role,
-            })
+            t_uid = ticket_data.get("userId") or ""
+            t_assigned = ticket_data.get("assigned_to")
+            messages.append(_message_payload(
+                "admin", SUPPORT_CONFIRMATION_MSG, datetime.utcnow().isoformat(), False,
+                t_uid, t_assigned,
+                sender_id=uid,
+                sender_name=current_user.get("name") or current_user.get("email") or "Support",
+                sender_role=role,
+            ))
             update_data["messages"] = messages
         ticket_ref.update(update_data)
         final_status = update_data["status"]

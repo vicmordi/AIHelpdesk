@@ -17,6 +17,7 @@ from flow_engine import (
     get_escalation_reply,
     is_escalation_message,
     clean_and_format_article,
+    clean_and_format_article_only,
     log_flow_event,
     SUPPORT_AGENT_SYSTEM,
 )
@@ -119,6 +120,10 @@ def _escalate_no_kb_match() -> dict:
 
 
 ESCALATION_MESSAGE = "I'm going to escalate this to a support specialist so they can assist you further."
+CONFIRMATION_PROMPT = "Please let me know if this resolved your issue.\n\nReply YES if it worked.\n\nReply NO if you would like me to escalate this to support."
+RESOLVED_REPLY = "Great! I'm glad your issue has been resolved.\n\nThis ticket will now be closed."
+ESCALATE_REPLY = "Understood. I'm escalating this to a support specialist now."
+NO_KB_FOUND_MSG = "I couldn't find a knowledge base article for this issue.\n\nI've escalated it to a support specialist."
 
 
 class TicketRequest(BaseModel):
@@ -465,10 +470,10 @@ async def create_ticket(
             log_flow_event("article_selection", query=ticket.message, best_id=best_article.get("id") if best_article else None, score=score)
 
             if not best_article or score < MIN_SCORE_THRESHOLD:
-                esc = _escalate_no_kb_match()
+                # No KB article found: escalate immediately, assign admin, mode=HUMAN
                 messages.append({
                     "sender": "ai",
-                    "message": esc["user_message"],
+                    "message": NO_KB_FOUND_MSG,
                     "createdAt": now_iso,
                     "isRead": False,
                 })
@@ -479,28 +484,28 @@ async def create_ticket(
                     "summary": summary,
                     "subject": summary,
                     "description": ticket.message,
-                    "status": esc["status"],
-                    "escalated": esc["escalated"],
+                    "status": "escalated",
+                    "escalated": True,
+                    "mode": "human",
                     "category": None,
                     "aiReply": None,
                     "confidence": 0.0,
                     "knowledge_used": [],
-                    "internal_note": esc["internal_note"],
+                    "internal_note": "No KB match",
                     "messages": messages,
                     "createdAt": now_iso,
-                    "ai_mode": "article",
-                    "current_step": 0,
-                    "troubleshooting_context": {},
+                    "ai_mode": "ai_free",
                     "resolved": False,
                     "returned_article_id": None,
                     "rejected_article_ids": [],
                 }
             else:
-                # FULL ARTICLE AT ONCE: Return cleaned, structured summary. No step-by-step flow.
+                # MESSAGE 1: Article only (no confirmation). MESSAGE 2: Confirmation prompt (separate).
                 summary_short = (ticket.message[:200] + "..." if len(ticket.message) > 200 else ticket.message)
-                ai_reply = clean_and_format_article(best_article, ticket.message)
-                ai_reply = humanize_reply(ai_reply)
-                messages.append({"sender": "ai", "message": ai_reply, "createdAt": now_iso, "isRead": False})
+                article_only = clean_and_format_article_only(best_article, ticket.message)
+                article_only = humanize_reply(article_only)
+                messages.append({"sender": "ai", "message": article_only, "createdAt": now_iso, "isRead": False})
+                messages.append({"sender": "ai", "message": CONFIRMATION_PROMPT, "createdAt": now_iso, "isRead": False})
                 log_flow_event("article_selection", article_id=best_article.get("id"), title=best_article.get("title"))
                 ticket_data = {
                     "userId": uid,
@@ -508,28 +513,26 @@ async def create_ticket(
                     "summary": summary_short,
                     "subject": summary_short,
                     "description": ticket.message,
-                    "status": "auto_resolved",
+                    "status": "ai_responded",
                     "escalated": False,
+                    "mode": "ai",
                     "category": best_article.get("category"),
-                    "aiReply": ai_reply,
+                    "aiReply": article_only,
                     "confidence": float(score),
                     "knowledge_used": [best_article.get("title", "")],
                     "internal_note": "",
                     "messages": messages,
                     "createdAt": now_iso,
                     "ai_mode": "article",
-                    "current_step": 0,
-                    "troubleshooting_context": {},
                     "resolved": False,
                     "returned_article_id": best_article.get("id"),
                     "rejected_article_ids": [],
                 }
         except Exception as e:
             print("AI processing error:", str(e))
-            esc = _escalate_no_kb_match()
             messages.append({
                 "sender": "ai",
-                "message": esc["user_message"],
+                "message": NO_KB_FOUND_MSG,
                 "createdAt": now_iso,
                 "isRead": False,
             })
@@ -540,26 +543,24 @@ async def create_ticket(
                 "summary": summary_fallback,
                 "subject": summary_fallback,
                 "description": ticket.message,
-                "status": esc["status"],
+                "status": "escalated",
                 "escalated": True,
+                "mode": "human",
                 "category": None,
                 "aiReply": None,
                 "confidence": 0.0,
                 "knowledge_used": [],
-                "internal_note": esc["internal_note"] + f" (AI error: {str(e)[:200]})",
+                "internal_note": f"AI error: {str(e)[:200]}",
                 "messages": messages,
                 "createdAt": now_iso,
-                "ai_mode": "article",
-                "current_step": 0,
-                "troubleshooting_context": {},
+                "ai_mode": "ai_free",
                 "resolved": False,
                 "returned_article_id": None,
                 "rejected_article_ids": [],
             }
 
         if ticket_data is None:
-            esc = _escalate_no_kb_match()
-            messages.append({"sender": "ai", "message": esc["user_message"], "createdAt": now_iso, "isRead": False})
+            messages.append({"sender": "ai", "message": NO_KB_FOUND_MSG, "createdAt": now_iso, "isRead": False})
             summary_fallback = (ticket.message[:200] + "..." if len(ticket.message) > 200 else ticket.message)
             ticket_data = {
                 "userId": uid,
@@ -567,18 +568,17 @@ async def create_ticket(
                 "summary": summary_fallback,
                 "subject": summary_fallback,
                 "description": ticket.message,
-                "status": esc["status"],
+                "status": "escalated",
                 "escalated": True,
+                "mode": "human",
                 "category": None,
                 "aiReply": None,
                 "confidence": 0.0,
                 "knowledge_used": [],
-                "internal_note": esc["internal_note"],
+                "internal_note": "No KB match",
                 "messages": messages,
                 "createdAt": now_iso,
-                "ai_mode": "article",
-                "current_step": 0,
-                "troubleshooting_context": {},
+                "ai_mode": "ai_free",
                 "resolved": False,
                 "returned_article_id": None,
                 "rejected_article_ids": [],
@@ -1014,25 +1014,79 @@ async def add_message_to_ticket(
         }
         messages.append(new_message)
 
-        # Article mode: user says answer was wrong / issue unresolved → escalate immediately. Do NOT retry.
+        # HUMAN mode: AI must NEVER respond. Only store user message.
+        if ticket_data.get("mode") == "human":
+            ticket_ref.update({"messages": messages})
+            return {"message": "Message added successfully", "ticket_id": ticket_id, "new_message": new_message}
+
+        # CLOSED mode: No further AI responses.
+        if ticket_data.get("mode") == "closed":
+            ticket_ref.update({"messages": messages})
+            return {"message": "Message added successfully", "ticket_id": ticket_id, "new_message": new_message}
+
+        # Phase 4: AWAITING_CONFIRMATION — user confirms admin resolution (YES → closed, NO → reopened)
         if (
             message_request.sender == "user"
-            and ticket_data.get("ai_mode") == "article"
+            and ticket_data.get("status") == "awaiting_confirmation"
+        ):
+            user_msg = message_request.message
+            msg_lower = user_msg.strip().lower()
+            now_iso = datetime.utcnow().isoformat()
+            if msg_lower in ("yes", "y", "yeah", "sure") or any(p in msg_lower for p in ("working", "resolved", "fixed", "all good", "thank")):
+                ticket_ref.update({
+                    "messages": messages,
+                    "status": "closed",
+                    "mode": "closed",
+                    "resolved": True,
+                })
+                return {"message": "Message added successfully", "ticket_id": ticket_id, "new_message": new_message}
+            if msg_lower in ("no", "n") or _is_dissatisfaction(user_msg):
+                ticket_ref.update({
+                    "messages": messages,
+                    "status": "reopened",
+                    "mode": "human",
+                    "resolved": False,
+                    "internal_note": (ticket_data.get("internal_note") or "") + " [User: not resolved after admin]",
+                })
+                return {"message": "Message added successfully", "ticket_id": ticket_id, "new_message": new_message}
+
+        # Phase 2: AI mode — user confirmation (YES → close, NO → escalate)
+        if (
+            message_request.sender == "user"
+            and (ticket_data.get("mode") == "ai" or ticket_data.get("ai_mode") == "article")
             and not ticket_data.get("resolved")
             and not ticket_data.get("escalated")
         ):
             user_msg = message_request.message
-            if _is_dissatisfaction(user_msg):
-                now_iso = datetime.utcnow().isoformat()
-                esc = _escalate_no_kb_match()
-                messages.append({"sender": "ai", "message": esc["user_message"], "createdAt": now_iso, "isRead": False})
+            msg_lower = user_msg.strip().lower()
+            now_iso = datetime.utcnow().isoformat()
+
+            # YES / solved / fixed / resolved → close ticket
+            if msg_lower in ("yes", "y", "yeah", "sure") or any(p in msg_lower for p in ("solved", "fixed", "resolved", "it worked", "working", "all good", "thank you", "thanks")):
+                ai_reply = RESOLVED_REPLY
+                messages.append({"sender": "ai", "message": ai_reply, "createdAt": now_iso, "isRead": False})
                 ticket_ref.update({
                     "messages": messages,
-                    "status": esc["status"],
-                    "escalated": True,
-                    "internal_note": (ticket_data.get("internal_note") or "") + " [User: answer wrong/unresolved]",
+                    "status": "closed",
+                    "mode": "closed",
+                    "resolved": True,
+                    "escalated": False,
                 })
-                return {"message": "Message added successfully", "ticket_id": ticket_id, "new_message": new_message, "ai_reply": {"sender": "ai", "message": esc["user_message"], "createdAt": now_iso}}
+                return {"message": "Message added successfully", "ticket_id": ticket_id, "new_message": new_message, "ai_reply": {"sender": "ai", "message": ai_reply, "createdAt": now_iso}, "resolved": True}
+
+            # NO / not working / escalate → escalate to human
+            if msg_lower in ("no", "n") or _is_dissatisfaction(user_msg) or any(p in msg_lower for p in ("not working", "still broken", "didn't help", "escalate")):
+                ai_reply = ESCALATE_REPLY
+                messages.append({"sender": "ai", "message": ai_reply, "createdAt": now_iso, "isRead": False})
+                ticket_ref.update({
+                    "messages": messages,
+                    "status": "escalated",
+                    "mode": "human",
+                    "escalated": True,
+                    "ai_mode": "ai_free",
+                    "internal_note": (ticket_data.get("internal_note") or "") + " [User: NO / escalate]",
+                })
+                return {"message": "Message added successfully", "ticket_id": ticket_id, "new_message": new_message, "ai_reply": {"sender": "ai", "message": ai_reply, "createdAt": now_iso}}
 
         # Guided mode disabled: any legacy guided ticket → escalate
         if (
@@ -1041,10 +1095,11 @@ async def add_message_to_ticket(
             and not ticket_data.get("resolved")
         ):
             now_iso = datetime.utcnow().isoformat()
-            escalation_msg = ESCALATION_MESSAGE
+            escalation_msg = ESCALATE_REPLY
             messages.append({"sender": "ai", "message": humanize_reply(escalation_msg), "createdAt": now_iso, "isRead": False})
             ticket_ref.update({
                 "messages": messages,
+                "mode": "human",
                 "ai_mode": "ai_free",
                 "status": "escalated",
                 "escalated": True,
@@ -1096,6 +1151,9 @@ async def mark_messages_as_read(
         raise HTTPException(status_code=500, detail=f"Error marking messages as read: {str(e)}")
 
 
+ADMIN_RESOLVED_MSG = "Your support specialist has marked this issue as resolved.\n\nPlease confirm if everything is working properly."
+
+
 @router.put("/{ticket_id}/status")
 async def update_ticket_status(
     ticket_id: str,
@@ -1104,12 +1162,13 @@ async def update_ticket_status(
 ):
     """
     Update ticket status (support_admin or super_admin). Scoped by organization.
-    Allowed statuses: pending, in_progress, resolved, escalated, auto_resolved.
+    Allowed statuses: pending, in_progress, resolved, escalated, closed, ai_responded, awaiting_confirmation, reopened.
+    Phase 4: When admin marks resolved (mode=human), status → awaiting_confirmation, send confirmation prompt.
     """
     try:
         db = get_db()
         organization_id = current_user.get("organization_id")
-        allowed_statuses = ["pending", "in_progress", "resolved", "escalated", "auto_resolved"]
+        allowed_statuses = ["pending", "in_progress", "resolved", "escalated", "closed", "ai_responded", "awaiting_confirmation", "reopened", "auto_resolved"]
         new_status = status_update.get("status")
         if not new_status or new_status not in allowed_statuses:
             raise HTTPException(status_code=400, detail=f"Invalid status. Allowed: {', '.join(allowed_statuses)}")
@@ -1128,12 +1187,26 @@ async def update_ticket_status(
         current_escalated = ticket_data.get("escalated", False)
         if new_status == "escalated":
             current_escalated = True
-        ticket_ref.update({
+
+        # Phase 4: Admin marks resolved (mode=human) → awaiting_confirmation + confirmation prompt
+        update_data = {
             "status": new_status,
             "escalated": current_escalated,
             "updatedAt": datetime.utcnow().isoformat()
-        })
-        return {"message": "Ticket status updated successfully", "ticket_id": ticket_id, "status": new_status, "escalated": current_escalated}
+        }
+        if new_status == "resolved" and ticket_data.get("mode") == "human":
+            update_data["status"] = "awaiting_confirmation"
+            messages = list(ticket_data.get("messages") or [])
+            messages.append({
+                "sender": "ai",
+                "message": ADMIN_RESOLVED_MSG,
+                "createdAt": datetime.utcnow().isoformat(),
+                "isRead": False,
+            })
+            update_data["messages"] = messages
+        ticket_ref.update(update_data)
+        final_status = update_data["status"]
+        return {"message": "Ticket status updated successfully", "ticket_id": ticket_id, "status": final_status, "escalated": current_escalated}
     except HTTPException:
         raise
     except Exception as e:

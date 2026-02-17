@@ -272,32 +272,22 @@ def _detect_platform_from_message(user_message: str) -> Optional[str]:
     return None
 
 
-def clean_and_format_article(article: Dict[str, Any], user_message: str = "") -> str:
+def clean_and_format_article_only(article: Dict[str, Any], user_message: str = "") -> str:
     """
-    Clean and format article for full-at-once response.
-    - Remove duplicate sections
-    - Filter by platform (iPhone/Android) if user specifies
-    - Remove redundant explanations
-    - Format: intro, numbered steps, closing, escalation offer.
-    All content from KB only. No external knowledge.
+    Clean and format article content ONLY. No confirmation, no escalation text.
+    Returns: title/intro + numbered steps. Strictly KB content.
     """
     title = (article.get("title") or "").strip()
     content = (article.get("content") or "").strip()
     topic = (title or "this").lower()
     topic_short = topic.replace("how to ", "").replace("how ", "").strip() or topic
-
-    # Detect platform from user message
     platform = _detect_platform_from_message(user_message)
-
-    # Get platform steps if content has multiple platform sections
     converted = convert_legacy_content_to_flow(title, content, article.get("category", ""))
     platform_steps = converted.get("_platform_steps") or article.get("_platform_steps")
     legacy_branches = article.get("guided_branches") or article.get("branches")
-
     steps: List[str] = []
     if platform and platform_steps and isinstance(platform_steps, dict):
-        steps = platform_steps.get(platform, []) or []
-        steps = [str(s).strip() for s in steps if s]
+        steps = [str(s).strip() for s in (platform_steps.get(platform, []) or []) if s]
     elif platform and legacy_branches and isinstance(legacy_branches, dict):
         branch = legacy_branches.get(platform) or legacy_branches.get(platform.replace("_", ""))
         if isinstance(branch, list):
@@ -317,8 +307,6 @@ def clean_and_format_article(article: Dict[str, Any], user_message: str = "") ->
     if not steps:
         steps = _parse_numbered_steps(content)
         steps = _filter_intro_sentences(steps)
-
-    # Dedupe, preserve order
     seen = set()
     deduped = []
     for s in steps:
@@ -330,13 +318,17 @@ def clean_and_format_article(article: Dict[str, Any], user_message: str = "") ->
             seen.add(t_lower)
             deduped.append(t[:400])
     steps = deduped if deduped else [content[:400] if content else "Please follow the instructions provided."]
-
-    # Format output
     intro = f"Sure — here's how to {topic_short}:"
     step_lines = [f"{i}. {s}" for i, s in enumerate(steps, 1)]
-    closing = "That should complete the process."
-    escalation_offer = "If this does not resolve your issue, let me know and I can escalate this to a support specialist."
-    return f"{intro}\n\n" + "\n".join(step_lines) + f"\n\n{closing}\n\n{escalation_offer}"
+    return f"{intro}\n\n" + "\n".join(step_lines)
+
+
+def clean_and_format_article(article: Dict[str, Any], user_message: str = "") -> str:
+    """
+    Clean and format article (legacy - includes closing). Prefer clean_and_format_article_only.
+    """
+    base = clean_and_format_article_only(article, user_message)
+    return base + "\n\nThat should complete the process.\n\nIf this does not resolve your issue, let me know and I can escalate this to a support specialist."
 
 
 def _parse_numbered_steps(content: str) -> List[str]:

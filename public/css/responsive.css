@@ -81,7 +81,7 @@ html, body {
         display: none;
         position: fixed;
         inset: 0;
-        background: rgba(15, 23, 42, 0.5);
+        background: rgba(0, 0, 0, 0.6);
         z-index: 250;
         opacity: 0;
         transition: opacity 0.3s ease;
@@ -109,10 +109,10 @@ html, body {
         height: 44px;
         min-width: 44px;
         min-height: 44px;
-        border-radius: 12px;
-        background: #fff;
-        border: 1px solid var(--border-color, #e2e8f0);
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+        border-radius: var(--radius-lg);
+        background: var(--card);
+        border: 1px solid var(--border-color);
+        box-shadow: var(--shadow-md);
         align-items: center;
         justify-content: center;
         font-size: 20px;
@@ -169,8 +169,8 @@ html, body {
         flex-direction: column;
         gap: 8px;
         padding: 16px;
-        background: var(--bg-secondary, #fff);
-        border: 1px solid var(--border-color, #e2e8f0);
+        background: var(--card);
+        border: 1px solid var(--border-color);
         border-radius: 12px;
         cursor: pointer;
         transition: box-shadow 0.2s, border-color 0.2s;
@@ -195,9 +195,7 @@ html, body {
         font-size: 15px;
     }
     .admin-tickets-table td:nth-child(2),
-    .user-tickets-table td:nth-child(2) {
-        order: 2;
-    }
+    .user-tickets-table td:nth-child(2) { order: 2; }
     .admin-tickets-table td:nth-child(3),
     .user-tickets-table td:nth-child(3) { order: 4; }
     .admin-tickets-table td:nth-child(4),
@@ -208,6 +206,10 @@ html, body {
     .user-tickets-table .user-ticket-title {
         font-size: 15px;
         word-break: break-word;
+    }
+    .admin-tickets-table tbody tr,
+    .user-tickets-table tbody tr {
+        background: var(--card);
     }
 }
 
@@ -300,7 +302,7 @@ html, body {
         bottom: 0;
         left: 0;
         right: 0;
-        background: var(--bg-secondary, #fff);
+        background: var(--card);
         padding: 12px 16px;
         padding-bottom: max(12px, env(safe-area-inset-bottom));
         border-top: 1px solid var(--border-color, #e2e8f0);

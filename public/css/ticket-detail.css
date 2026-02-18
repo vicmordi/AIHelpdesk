@@ -4,7 +4,7 @@
     display: flex;
     flex-direction: column;
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-    background: var(--bg-primary);
+    background: var(--bg-gradient);
 }
 
 .ticket-detail-nav {
@@ -63,10 +63,10 @@
     font-size: 13px;
 }
 
-.ticket-detail-badge.status-closed { background: #f0fdf4; color: #166534; }
-.ticket-detail-badge.status-escalated { background: #fef2f2; color: #b91c1c; }
-.ticket-detail-badge.status-in-progress { background: #fff7ed; color: #c2410c; }
-.ticket-detail-badge.status-open { background: var(--bg-tertiary); color: var(--text-secondary); }
+.ticket-detail-badge.status-closed { background: var(--success-bg); color: #86efac; }
+.ticket-detail-badge.status-escalated { background: var(--error-bg); color: #fca5a5; }
+.ticket-detail-badge.status-in-progress { background: var(--warning-bg); color: #fde047; }
+.ticket-detail-badge.status-open { background: var(--surface); color: var(--text-secondary); }
 
 .ticket-detail-admin-controls {
     margin-top: 16px;
@@ -131,7 +131,7 @@
 }
 
 .ticket-tab.active {
-    background: var(--primary-color);
+    background: var(--accent);
     color: #fff;
 }
 
@@ -213,14 +213,14 @@
 
 .ticket-chat-bubble.user {
     align-self: flex-end;
-    background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+    background: var(--accent-gradient);
     color: #fff;
 }
 
 .ticket-chat-bubble.admin,
 .ticket-chat-bubble.ai {
     align-self: flex-start;
-    background: var(--bg-tertiary);
+    background: var(--surface);
     border: 1px solid var(--border-color);
     color: var(--text-primary);
 }
@@ -267,7 +267,7 @@
 
 .ticket-chat-form textarea:focus {
     outline: none;
-    border-color: var(--primary-color);
+    border-color: var(--accent);
 }
 
 .ticket-chat-form .btn {

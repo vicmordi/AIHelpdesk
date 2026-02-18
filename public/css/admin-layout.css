@@ -6,7 +6,7 @@
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
 }
 
-/* Sidebar — dark theme, fixed left */
+/* Sidebar — dark glass, gradient, soft edge */
 .admin-sidebar {
     position: fixed;
     left: 0;
@@ -14,8 +14,10 @@
     bottom: 0;
     width: var(--sidebar-width);
     background: var(--sidebar-bg);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
     border-right: 1px solid var(--sidebar-border);
-    box-shadow: 2px 0 16px rgba(0, 0, 0, 0.15);
+    box-shadow: 4px 0 24px rgba(0, 0, 0, 0.2), 0 0 0 1px rgba(255, 255, 255, 0.03);
     z-index: 200;
     display: flex;
     flex-direction: column;
@@ -50,8 +52,9 @@
 .sidebar-brand-icon {
     width: 36px;
     height: 36px;
-    border-radius: 12px;
+    border-radius: var(--radius-sm);
     background: var(--sidebar-accent);
+    box-shadow: 0 0 16px rgba(59, 130, 246, 0.25);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -82,14 +85,14 @@
     align-items: center;
     gap: 12px;
     padding: 10px 14px;
-    border-radius: 12px;
+    border-radius: var(--radius);
     color: var(--sidebar-text);
     text-decoration: none;
     font-size: 14px;
     font-weight: 500;
-    transition: background 0.2s, color 0.2s;
+    transition: background var(--transition), color var(--transition), box-shadow var(--transition);
     margin-bottom: 2px;
-    border: none;
+    border: 1px solid transparent;
     width: 100%;
     text-align: left;
     cursor: pointer;
@@ -105,12 +108,14 @@
 .sidebar-link.active {
     background: var(--sidebar-accent);
     color: #fff;
-    box-shadow: 0 2px 8px rgba(37, 99, 235, 0.4);
+    box-shadow: var(--sidebar-active-glow);
+    border-color: rgba(255, 255, 255, 0.12);
 }
 
 .sidebar-link.active:hover {
     background: var(--sidebar-accent-hover);
     color: #fff;
+    box-shadow: 0 0 24px rgba(59, 130, 246, 0.3);
 }
 
 .sidebar-link-icon {
@@ -218,8 +223,6 @@
 
 .admin-main .card {
     border-radius: var(--radius-lg);
-    box-shadow: var(--shadow-sm);
-    background: var(--card);
 }
 
 .admin-main .admin-page {

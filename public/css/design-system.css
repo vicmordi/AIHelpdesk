@@ -1,28 +1,39 @@
 /**
- * Centralized Design System — Professional SaaS (Zendesk / Linear / Intercom)
- * Single source of truth for colors, spacing, and surfaces.
- * Deep navy / slate blue theme. Blue accent. No orange, no purple, no plain white.
+ * Premium Gradient Design System — Linear + Stripe + Vercel
+ * Smooth gradients, soft glow, glass depth. No neon overload.
  */
 
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
 :root {
-    /* Backgrounds */
+    /* Base gradient background */
+    --bg-gradient: linear-gradient(135deg, #0f172a 0%, #1e293b 40%, #0f172a 100%);
+    --bg-gradient-overlay-1: radial-gradient(circle at 20% 30%, rgba(59, 130, 246, 0.12), transparent 40%);
+    --bg-gradient-overlay-2: radial-gradient(circle at 80% 70%, rgba(99, 102, 241, 0.1), transparent 40%);
+
+    /* Surfaces */
     --bg-primary: #0f172a;
     --bg-secondary: #1e293b;
     --bg-tertiary: #111827;
-    --surface: #1e293b;
-    --card: #1e293b;
-    --bg-gradient: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%);
+    --surface: rgba(30, 41, 59, 0.7);
+    --surface-solid: #1e293b;
+    --card: rgba(30, 41, 59, 0.6);
+    --card-solid: #1e293b;
+    --card-inner: rgba(15, 23, 42, 0.85);
+    --card-border: rgba(255, 255, 255, 0.06);
+    --card-shadow: 0 4px 24px rgba(0, 0, 0, 0.2);
 
-    /* Accent — professional blue only */
+    /* Primary accent gradients */
     --accent: #2563eb;
     --accent-hover: #3b82f6;
-    --accent-light: rgba(37, 99, 235, 0.15);
-    --accent-gradient: linear-gradient(135deg, #2563eb 0%, #3b82f6 100%);
-    --accent-gradient-hover: linear-gradient(135deg, #1d4ed8 0%, #2563eb 100%);
+    --accent-gradient: linear-gradient(90deg, #2563eb, #4f46e5);
+    --accent-gradient-hover: linear-gradient(90deg, #3b82f6, #6366f1);
+    --accent-gradient-secondary: linear-gradient(90deg, #3b82f6, #6366f1);
+    --accent-light: rgba(59, 130, 246, 0.2);
+    --accent-glow: 0 0 20px rgba(59, 130, 246, 0.25);
+    --accent-glow-strong: 0 0 28px rgba(59, 130, 246, 0.35);
 
-    /* Legacy aliases (map to accent) */
+    /* Legacy aliases */
     --primary-color: #2563eb;
     --primary-dark: #1d4ed8;
     --primary-light: #3b82f6;
@@ -37,40 +48,45 @@
     --text-on-accent: #ffffff;
 
     /* Borders */
-    --border-color: rgba(255, 255, 255, 0.08);
-    --border-color-strong: #334155;
+    --border-color: rgba(255, 255, 255, 0.06);
+    --border-color-strong: rgba(255, 255, 255, 0.1);
+    --border-glow: rgba(59, 130, 246, 0.4);
 
-    /* Semantic — dark-theme friendly */
+    /* Semantic */
     --success-color: #22c55e;
     --success-bg: rgba(34, 197, 94, 0.15);
     --warning-color: #eab308;
     --warning-bg: rgba(234, 179, 8, 0.15);
     --error-color: #ef4444;
     --error-bg: rgba(239, 68, 68, 0.15);
-    --info-bg: rgba(37, 99, 235, 0.12);
+    --info-bg: rgba(59, 130, 246, 0.12);
 
-    /* Shadows */
-    --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.2);
-    --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.25);
-    --shadow-lg: 0 12px 28px rgba(0, 0, 0, 0.35);
+    /* Shadows & glow */
+    --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.15);
+    --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.2);
+    --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.25);
+    --glow-subtle: 0 0 0 1px rgba(255, 255, 255, 0.03);
+    --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
 
-    /* Radius */
-    --radius: 12px;
-    --radius-sm: 8px;
-    --radius-lg: 16px;
+    /* Radius — modern rounded */
+    --radius: 14px;
+    --radius-sm: 10px;
+    --radius-lg: 18px;
 
     /* Transition */
-    --transition: 0.2s ease;
+    --transition: 0.25s ease;
 
-    /* Sidebar (admin) — same surface tone */
+    /* Sidebar */
     --sidebar-width: 260px;
     --sidebar-collapsed-width: 72px;
-    --sidebar-bg: #0f172a;
-    --sidebar-bg-hover: #1e293b;
-    --sidebar-border: rgba(255, 255, 255, 0.06);
+    --sidebar-bg: linear-gradient(180deg, rgba(15, 23, 42, 0.98) 0%, rgba(15, 23, 42, 0.95) 100%);
+    --sidebar-bg-solid: #0f172a;
+    --sidebar-bg-hover: rgba(30, 41, 59, 0.8);
+    --sidebar-border: rgba(255, 255, 255, 0.05);
     --sidebar-accent: var(--accent-gradient);
     --sidebar-accent-hover: var(--accent-gradient-hover);
     --sidebar-text: #94a3b8;
     --sidebar-text-active: #f8fafc;
+    --sidebar-active-glow: 0 0 20px rgba(59, 130, 246, 0.2);
     --sidebar-icon-size: 20px;
 }

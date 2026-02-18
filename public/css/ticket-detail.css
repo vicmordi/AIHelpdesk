@@ -126,13 +126,14 @@
 }
 
 .ticket-tab:hover {
-    background: var(--bg-tertiary);
+    background: rgba(30, 41, 59, 0.8);
     color: var(--text-primary);
 }
 
 .ticket-tab.active {
-    background: var(--accent);
+    background: var(--accent-gradient);
     color: #fff;
+    box-shadow: 0 0 16px rgba(59, 130, 246, 0.25);
 }
 
 .ticket-tab-panel {
@@ -215,6 +216,7 @@
     align-self: flex-end;
     background: var(--accent-gradient);
     color: #fff;
+    box-shadow: 0 2px 12px rgba(59, 130, 246, 0.2);
 }
 
 .ticket-chat-bubble.admin,

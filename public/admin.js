@@ -1053,7 +1053,7 @@ function updateDashboardCharts(tickets) {
                 labels: ["Resolved", "In Progress", "Escalated", "Open"],
                 datasets: [{
                     data: [resolved, inProgress, escalated, open],
-                    backgroundColor: ["#22c55e", "#eab308", "#ef4444", "#3b82f6"],
+                    backgroundColor: ["#059669", "#d97706", "#dc2626", "#0ea5e9"],
                     borderWidth: 0,
                 }],
             },

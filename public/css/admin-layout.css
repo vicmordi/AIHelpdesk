@@ -2,11 +2,21 @@
 .admin-app {
     display: flex;
     min-height: 100vh;
-    background: var(--bg-primary);
+    background: var(--bg-gradient);
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    position: relative;
 }
 
-/* Sidebar — dark glass, gradient, soft edge */
+.admin-app::after {
+    content: "";
+    position: fixed;
+    inset: 0;
+    background: var(--bg-gradient-overlay-1), var(--bg-gradient-overlay-2);
+    pointer-events: none;
+    z-index: -1;
+}
+
+/* Sidebar — light, soft border */
 .admin-sidebar {
     position: fixed;
     left: 0;
@@ -14,10 +24,8 @@
     bottom: 0;
     width: var(--sidebar-width);
     background: var(--sidebar-bg);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
     border-right: 1px solid var(--sidebar-border);
-    box-shadow: 4px 0 24px rgba(0, 0, 0, 0.2), 0 0 0 1px rgba(255, 255, 255, 0.03);
+    box-shadow: 4px 0 24px rgba(2, 132, 199, 0.06);
     z-index: 200;
     display: flex;
     flex-direction: column;
@@ -54,7 +62,7 @@
     height: 36px;
     border-radius: var(--radius-sm);
     background: var(--sidebar-accent);
-    box-shadow: 0 0 16px rgba(59, 130, 246, 0.25);
+    box-shadow: 0 0 16px rgba(56, 189, 248, 0.25);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -107,15 +115,15 @@
 
 .sidebar-link.active {
     background: var(--sidebar-accent);
-    color: #fff;
+    color: var(--text-on-accent);
     box-shadow: var(--sidebar-active-glow);
-    border-color: rgba(255, 255, 255, 0.12);
+    border-color: rgba(255, 255, 255, 0.2);
 }
 
 .sidebar-link.active:hover {
     background: var(--sidebar-accent-hover);
-    color: #fff;
-    box-shadow: 0 0 24px rgba(59, 130, 246, 0.3);
+    color: var(--text-on-accent);
+    box-shadow: 0 0 24px rgba(56, 189, 248, 0.3);
 }
 
 .sidebar-link-icon {
@@ -163,7 +171,7 @@
     gap: 12px;
     padding: 10px 12px;
     border-radius: 12px;
-    background: rgba(255, 255, 255, 0.06);
+    background: var(--blue-light-1);
 }
 
 .sidebar-user-avatar {
@@ -171,7 +179,7 @@
     height: 36px;
     border-radius: 12px;
     background: var(--sidebar-accent);
-    color: #fff;
+    color: var(--text-on-accent);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -195,10 +203,10 @@
     width: 28px;
     height: 28px;
     border-radius: 12px;
-    background: var(--sidebar-bg-hover);
+    background: var(--surface-white);
     border: 1px solid var(--sidebar-border);
     color: var(--sidebar-text);
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+    box-shadow: var(--shadow-sm);
     cursor: pointer;
     display: none;
     align-items: center;
@@ -219,6 +227,8 @@
     margin-left: var(--sidebar-width);
     min-height: 100vh;
     padding: 20px 28px 40px;
+    position: relative;
+    z-index: 1;
 }
 
 .admin-main .card {
@@ -259,19 +269,19 @@
 /* Mobile menu button — visible below 992px; see responsive.css */
 
 .form-inline { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
-.form-inline input { min-width: 160px; padding: 10px 14px; border: 1px solid var(--border-color); border-radius: var(--radius-sm); }
-.form-control-inline { padding: 8px 12px; border: 1px solid var(--border-color-strong); border-radius: var(--radius-sm); background: var(--surface); color: var(--text-primary); font-size: 14px; }
+.form-inline input { min-width: 160px; padding: 10px 14px; border: 1px solid var(--border-soft); border-radius: var(--radius-sm); }
+.form-control-inline { padding: 8px 12px; border: 1px solid var(--border-soft); border-radius: var(--radius-sm); background: var(--surface-white); color: var(--text-primary); font-size: 14px; }
 .data-table { width: 100%; border-collapse: collapse; font-size: 14px; }
-.data-table th, .data-table td { padding: 12px 16px; text-align: left; border-bottom: 1px solid var(--border-color); }
-.data-table th { font-weight: 600; color: var(--text-secondary); background: var(--surface); }
+.data-table th, .data-table td { padding: 12px 16px; text-align: left; border-bottom: 1px solid var(--border-soft); }
+.data-table th { font-weight: 600; color: var(--text-muted); background: var(--surface-soft); }
 .data-table tbody tr:hover { background: var(--accent-light); }
 .btn-small, .btn-sm { padding: 6px 14px; font-size: 13px; }
 
 /* Knowledge Base article cards */
 .kb-article-cards { display: grid; gap: 16px; }
 .kb-article-card {
-    background: var(--card);
-    border: 1px solid var(--border-color);
+    background: var(--surface-white);
+    border: 1px solid var(--border-soft);
     border-radius: var(--radius);
     padding: 20px;
     transition: box-shadow 0.2s ease, border-color 0.2s ease;
@@ -279,7 +289,7 @@
 }
 .kb-article-card:hover {
     box-shadow: var(--shadow-md);
-    border-color: var(--accent);
+    border-color: var(--blue-accent);
 }
 .kb-card-header { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
 .kb-card-title { font-size: 18px; font-weight: 600; margin: 0; color: var(--text-primary); }
@@ -287,8 +297,8 @@
     font-size: 12px;
     padding: 4px 10px;
     border-radius: 20px;
-    background: var(--bg-tertiary);
-    color: var(--text-secondary);
+    background: var(--blue-light-1);
+    color: var(--blue-deep);
 }
 .kb-card-preview { font-size: 14px; color: var(--text-secondary); margin: 0 0 12px; line-height: 1.5; }
 .kb-card-meta { font-size: 12px; color: var(--text-tertiary); display: flex; gap: 16px; margin-bottom: 12px; }
@@ -384,7 +394,7 @@
 .ticket-row-dot.dot-resolved { background: #22c55e; }
 .ticket-row-dot.dot-in-progress { background: #eab308; }
 .ticket-row-dot.dot-escalated { background: #ef4444; }
-.ticket-row-dot.dot-open { background: #3b82f6; }
+.ticket-row-dot.dot-open { background: var(--blue-primary); }
 .ticket-row-main {
     flex: 1;
     min-width: 0;
@@ -453,8 +463,8 @@
 }
 .admin-tickets-table th {
     font-weight: 600;
-    color: var(--text-secondary);
-    background: var(--bg-tertiary);
+    color: var(--text-muted);
+    background: var(--surface-soft);
     white-space: nowrap;
 }
 .admin-tickets-table tbody tr:last-child td {
@@ -465,7 +475,7 @@
     transition: background 0.15s ease;
 }
 .admin-tickets-table .admin-ticket-row:hover {
-    background: rgba(99, 102, 241, 0.06);
+    background: var(--accent-light);
 }
 .admin-tickets-table .admin-ticket-row td {
     background: inherit;
@@ -488,7 +498,7 @@
     font-size: 12px;
     font-weight: 500;
 }
-.admin-ticket-status-escalated { background: var(--error-bg); color: #fca5a5; }
-.admin-ticket-status-in-progress { background: var(--warning-bg); color: #fde047; }
-.admin-ticket-status-closed { background: var(--success-bg); color: #86efac; }
-.admin-ticket-status-open { background: var(--surface); color: var(--text-secondary); }
+.admin-ticket-status-escalated { background: var(--error-bg); color: #b91c1c; }
+.admin-ticket-status-in-progress { background: var(--warning-bg); color: #b45309; }
+.admin-ticket-status-closed { background: var(--success-bg); color: #047857; }
+.admin-ticket-status-open { background: var(--blue-light-1); color: var(--blue-deep); }

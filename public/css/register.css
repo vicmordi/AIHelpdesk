@@ -16,6 +16,14 @@
     z-index: 0;
 }
 
+.register-bg::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: var(--bg-gradient-overlay-1), var(--bg-gradient-overlay-2);
+    pointer-events: none;
+}
+
 .register-wrap {
     position: relative;
     z-index: 1;
@@ -24,12 +32,10 @@
 }
 
 .register-box {
-    background: var(--card);
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
-    border-radius: var(--radius-lg);
-    box-shadow: var(--glass-shadow), 0 0 0 1px rgba(255, 255, 255, 0.06);
-    border: 1px solid var(--card-border);
+    background: var(--surface-white);
+    border-radius: 16px;
+    box-shadow: var(--shadow-lg);
+    border: 1px solid var(--border-soft);
     padding: 28px 32px;
 }
 
@@ -60,13 +66,13 @@
 
 .register-alert-error {
     background: var(--error-bg);
-    color: #fca5a5;
+    color: #b91c1c;
     border: 1px solid var(--error-color);
 }
 
 .register-alert-success {
     background: var(--success-bg);
-    color: #86efac;
+    color: #047857;
     border: 1px solid var(--success-color);
 }
 
@@ -90,18 +96,18 @@
 
 .register-field input {
     padding: 10px 12px;
-    border: 1px solid var(--border-color-strong);
+    border: 1px solid var(--border-soft);
     border-radius: var(--radius-sm);
     font-size: 14px;
     font-family: inherit;
-    background: var(--surface);
+    background: var(--surface-white);
     color: var(--text-primary);
     transition: border-color 0.2s, box-shadow 0.2s;
 }
 
 .register-field input:focus {
     outline: none;
-    border-color: var(--accent);
+    border-color: var(--blue-accent);
     box-shadow: 0 0 0 3px var(--accent-light);
 }
 
@@ -121,21 +127,21 @@
     padding: 12px 16px;
     font-size: 14px;
     font-weight: 600;
-    color: #fff;
-    background: linear-gradient(var(--card-inner), var(--card-inner)) padding-box,
+    color: var(--blue-deep);
+    background: linear-gradient(var(--surface-white), var(--surface-white)) padding-box,
                 var(--accent-gradient) border-box;
     border: 2px solid transparent;
     border-radius: var(--radius-sm);
     cursor: pointer;
     font-family: inherit;
     transition: opacity var(--transition), transform var(--transition), box-shadow var(--transition);
-    box-shadow: 0 0 20px rgba(59, 130, 246, 0.2);
+    box-shadow: var(--accent-glow);
 }
 
 .register-submit:hover {
     opacity: 0.98;
-    box-shadow: 0 0 28px rgba(59, 130, 246, 0.35);
-    transform: scale(1.01);
+    box-shadow: var(--accent-glow-strong);
+    transform: scale(1.02);
 }
 
 .register-submit:active {
@@ -150,7 +156,7 @@
 }
 
 .register-footer a {
-    color: var(--accent-hover);
+    color: var(--blue-accent);
     text-decoration: none;
 }
 

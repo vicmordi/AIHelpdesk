@@ -389,7 +389,88 @@ html, body {
 }
 
 /* =====================================================
-   8. GENERAL — No overflow, clean typography
+   8. USER MANAGEMENT — Mobile card layout (no horizontal scroll)
+   ===================================================== */
+
+@media (max-width: 768px) {
+    #user-mgmt-table-wrap {
+        overflow-x: visible;
+        min-width: 0;
+    }
+
+    #user-mgmt-table-wrap .data-table {
+        display: block;
+        width: 100%;
+    }
+
+    #user-mgmt-table-wrap .data-table thead {
+        display: none;
+    }
+
+    #user-mgmt-table-wrap .data-table tbody {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+    }
+
+    #user-mgmt-table-wrap .data-table tbody tr {
+        display: flex;
+        flex-direction: column;
+        padding: 16px;
+        background: var(--surface-card);
+        border-radius: 12px;
+        box-shadow: var(--shadow-sm);
+        border: 1px solid var(--border-subtle);
+        gap: 0;
+    }
+
+    #user-mgmt-table-wrap .data-table tbody td {
+        display: block;
+        padding: 6px 0;
+        border: none;
+        width: 100%;
+        box-sizing: border-box;
+    }
+
+    #user-mgmt-table-wrap .data-table tbody td::before {
+        content: attr(data-label);
+        font-weight: 600;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--text-muted);
+        display: block;
+        margin-bottom: 4px;
+    }
+
+    #user-mgmt-table-wrap .data-table tbody td:nth-child(1)::before { content: "Name"; }
+    #user-mgmt-table-wrap .data-table tbody td:nth-child(2)::before { content: "Email"; }
+    #user-mgmt-table-wrap .data-table tbody td:nth-child(3)::before { content: "Role"; }
+    #user-mgmt-table-wrap .data-table tbody td:nth-child(4)::before { content: "Status"; }
+    #user-mgmt-table-wrap .data-table tbody td:nth-child(5)::before { content: "Actions"; }
+
+    #user-mgmt-table-wrap .data-table tbody td:nth-child(5) {
+        margin-top: 8px;
+        padding-top: 12px;
+        border-top: 1px solid var(--border-subtle);
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    #user-mgmt-table-wrap .data-table tbody td:nth-child(5) .btn {
+        width: 100%;
+        min-height: 44px;
+        justify-content: center;
+    }
+
+    #user-mgmt-table-wrap .data-table tbody td:nth-child(5)::before {
+        margin-bottom: 8px;
+    }
+}
+
+/* =====================================================
+   9. GENERAL — No overflow, clean typography
    ===================================================== */
 
 @media (max-width: 768px) {

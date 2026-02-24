@@ -4,7 +4,7 @@
     display: flex;
     flex-direction: column;
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-    background: var(--bg-gradient);
+    background: var(--bg-primary);
 }
 
 .ticket-detail-nav {
@@ -34,7 +34,7 @@
 .ticket-detail-header {
     margin-bottom: 24px;
     padding-bottom: 20px;
-    border-bottom: 1px solid var(--border-soft);
+    border-bottom: 1px solid var(--border-subtle);
 }
 
 .ticket-detail-title {
@@ -63,15 +63,15 @@
     font-size: 13px;
 }
 
-.ticket-detail-badge.status-closed { background: var(--success-bg); color: #047857; }
-.ticket-detail-badge.status-escalated { background: var(--error-bg); color: #b91c1c; }
-.ticket-detail-badge.status-in-progress { background: var(--warning-bg); color: #b45309; }
-.ticket-detail-badge.status-open { background: var(--blue-light-1); color: var(--blue-deep); }
+.ticket-detail-badge.status-closed { background: var(--success-bg); color: #6ee7b7; }
+.ticket-detail-badge.status-escalated { background: var(--error-bg); color: #fca5a5; }
+.ticket-detail-badge.status-in-progress { background: var(--warning-bg); color: #fcd34d; }
+.ticket-detail-badge.status-open { background: var(--info-bg); color: var(--accent-glow); }
 
 .ticket-detail-admin-controls {
     margin-top: 16px;
     padding-top: 16px;
-    border-top: 1px solid var(--border-soft);
+    border-top: 1px solid var(--border-subtle);
     display: flex;
     flex-direction: column;
     gap: 16px;
@@ -95,7 +95,7 @@
 }
 .ticket-detail-admin-controls select {
     padding: 6px 10px;
-    border: 1px solid var(--border-soft);
+    border: 1px solid var(--border-subtle);
     border-radius: 8px;
     font-size: 14px;
     min-width: 140px;
@@ -126,14 +126,14 @@
 }
 
 .ticket-tab:hover {
-    background: var(--blue-light-1);
-    color: var(--text-dark);
+    background: var(--sidebar-hover-bg);
+    color: var(--text-primary);
 }
 
 .ticket-tab.active {
-    background: var(--accent-gradient);
-    color: var(--text-on-accent);
-    box-shadow: 0 0 16px rgba(56, 189, 248, 0.25);
+    background: var(--btn-primary-bg);
+    color: #fff;
+    box-shadow: 0 0 16px rgba(16, 185, 129, 0.3);
 }
 
 .ticket-tab-panel {
@@ -172,7 +172,7 @@
 
 .ticket-detail-ai-item {
     padding: 12px 14px;
-    background: var(--surface-soft);
+    background: var(--bg-secondary);
     border-radius: 8px;
     font-size: 14px;
     line-height: 1.5;
@@ -181,7 +181,7 @@
 
 .ticket-detail-ai-item time {
     font-size: 12px;
-    color: var(--text-tertiary);
+    color: var(--gray-500);
     display: block;
     margin-bottom: 6px;
 }
@@ -214,16 +214,16 @@
 
 .ticket-chat-bubble.user {
     align-self: flex-end;
-    background: var(--accent-gradient);
-    color: var(--text-on-accent);
-    box-shadow: 0 2px 12px rgba(56, 189, 248, 0.2);
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    border: 1px solid var(--border-subtle);
 }
 
 .ticket-chat-bubble.admin,
 .ticket-chat-bubble.ai {
     align-self: flex-start;
-    background: var(--surface-white);
-    border: 1px solid var(--border-soft);
+    background: rgba(16, 185, 129, 0.15);
+    border: 1px solid rgba(16, 185, 129, 0.25);
     color: var(--text-primary);
 }
 
@@ -234,20 +234,20 @@
     color: var(--text-secondary);
 }
 
-.ticket-chat-bubble.user .chat-sender { color: rgba(255,255,255,0.9); }
+.ticket-chat-bubble.user .chat-sender { color: var(--text-secondary); }
 
 .ticket-chat-bubble .chat-time {
     font-size: 11px;
-    color: var(--text-tertiary);
+    color: var(--gray-500);
     margin-top: 6px;
 }
 
-.ticket-chat-bubble.user .chat-time { color: rgba(255,255,255,0.75); }
+.ticket-chat-bubble.user .chat-time { color: var(--gray-500); }
 
 .ticket-chat-input-wrap {
     flex-shrink: 0;
     padding-top: 16px;
-    border-top: 1px solid var(--border-soft);
+    border-top: 1px solid var(--border-subtle);
 }
 
 .ticket-chat-form {
@@ -260,7 +260,7 @@
     flex: 1;
     min-height: 44px;
     padding: 10px 14px;
-    border: 1px solid var(--border-soft);
+    border: 1px solid var(--border-subtle);
     border-radius: 8px;
     font-size: 14px;
     font-family: inherit;
@@ -269,8 +269,8 @@
 
 .ticket-chat-form textarea:focus {
     outline: none;
-    border-color: var(--blue-accent);
-    box-shadow: 0 0 0 3px var(--accent-light);
+    border-color: var(--accent-emerald);
+    box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.2);
 }
 
 .ticket-chat-form .btn {

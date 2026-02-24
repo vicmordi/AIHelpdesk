@@ -1053,7 +1053,7 @@ function updateDashboardCharts(tickets) {
                 labels: ["Resolved", "In Progress", "Escalated", "Open"],
                 datasets: [{
                     data: [resolved, inProgress, escalated, open],
-                    backgroundColor: ["#059669", "#d97706", "#dc2626", "#0ea5e9"],
+                    backgroundColor: ["#10b981", "#f59e0b", "#ef4444", "#64748b"],
                     borderWidth: 0,
                 }],
             },
@@ -1098,8 +1098,8 @@ function updateDashboardCharts(tickets) {
                 datasets: [{
                     label: "Tickets",
                     data: counts,
-                    backgroundColor: "rgba(99, 102, 241, 0.7)",
-                    borderColor: "rgb(99, 102, 241)",
+                    backgroundColor: "rgba(16, 185, 129, 0.8)",
+                    borderColor: "rgb(16, 185, 129)",
                     borderWidth: 1,
                 }],
             },

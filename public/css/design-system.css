@@ -1,109 +1,78 @@
 /**
- * Light Blue Gradient Design System
- * Modern SaaS — Clean, Airy, Professional
+ * Deep Slate + Emerald — Modern AI SaaS (Linear-style)
+ * Premium, unique, professional.
  */
 
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
 :root {
-  /* ============================================================
-     GLOBAL COLOR SYSTEM
-     ============================================================ */
-  --blue-light-1: #e0f2fe;
-  --blue-light-2: #bae6fd;
-  --blue-primary: #38bdf8;
-  --blue-accent: #0ea5e9;
-  --blue-deep: #0284c7;
+  /* Backgrounds */
+  --bg-primary: #0f172a;
+  --bg-secondary: #111827;
+  --surface-card: #1f2937;
 
-  --text-dark: #0f172a;
-  --text-muted: #475569;
-
-  --surface-white: #ffffff;
-  --surface-soft: #f8fafc;
-
-  --border-soft: rgba(56, 189, 248, 0.3);
-
-  /* Background gradient */
-  --bg-gradient: linear-gradient(135deg, #e0f2fe 0%, #bae6fd 40%, #ffffff 100%);
-  --bg-gradient-overlay-1: radial-gradient(circle at 20% 30%, rgba(56, 189, 248, 0.2), transparent 40%);
-  --bg-gradient-overlay-2: radial-gradient(circle at 80% 70%, rgba(14, 165, 233, 0.15), transparent 40%);
-
-  /* Surfaces */
-  --bg-primary: var(--surface-soft);
-  --bg-secondary: var(--blue-light-1);
-  --bg-tertiary: var(--blue-light-2);
-  --surface: rgba(255, 255, 255, 0.9);
-  --surface-solid: var(--surface-white);
-  --card: var(--surface-white);
-  --card-solid: var(--surface-white);
-  --card-inner: var(--surface-white);
-  --card-border: var(--border-soft);
-  --card-shadow: 0 4px 24px rgba(2, 132, 199, 0.08);
-
-  /* Primary accent gradients */
-  --accent: var(--blue-accent);
-  --accent-hover: var(--blue-primary);
-  --accent-gradient: linear-gradient(90deg, #38bdf8, #0ea5e9, #0284c7);
-  --accent-gradient-hover: linear-gradient(90deg, #7dd3fc, #38bdf8, #0ea5e9);
-  --accent-gradient-secondary: linear-gradient(90deg, #38bdf8, #0ea5e9);
-  --accent-light: rgba(56, 189, 248, 0.2);
-  --accent-glow: 0 0 20px rgba(56, 189, 248, 0.25);
-  --accent-glow-strong: 0 0 28px rgba(56, 189, 248, 0.35);
-
-  /* Legacy aliases */
-  --primary-color: var(--blue-accent);
-  --primary-dark: var(--blue-deep);
-  --primary-light: var(--blue-primary);
-  --primary-gradient: var(--accent-gradient);
-  --primary-gradient-hover: var(--accent-gradient-hover);
+  /* Emerald accent */
+  --accent-emerald: #10b981;
+  --accent-emerald-dark: #059669;
+  --accent-glow: #34d399;
 
   /* Text */
-  --text-primary: var(--text-dark);
-  --text-secondary: var(--text-muted);
-  --text-tertiary: #64748b;
-  --text-muted: var(--text-muted);
-  --text-on-accent: var(--surface-white);
+  --text-primary: #f8fafc;
+  --text-secondary: #cbd5e1;
+  --text-muted: #94a3b8;
 
-  /* Borders */
-  --border-color: var(--border-soft);
-  --border-color-strong: rgba(56, 189, 248, 0.4);
-  --border-glow: rgba(56, 189, 248, 0.5);
+  /* Border */
+  --border-subtle: rgba(255, 255, 255, 0.08);
+
+  /* Aliases for existing usage */
+  --background-main: var(--bg-primary);
+  --background-surface: var(--surface-card);
+  --surface: var(--bg-secondary);
+  --card: var(--surface-card);
+  --card-border: var(--border-subtle);
+  --card-shadow: 0 4px 24px rgba(0, 0, 0, 0.25);
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.2);
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.35);
+
+  /* Buttons */
+  --btn-primary-bg: linear-gradient(135deg, #10b981, #059669);
+  --btn-primary-glow: 0 0 20px rgba(16, 185, 129, 0.35);
+  --btn-primary-glow-hover: 0 0 28px rgba(16, 185, 129, 0.45);
 
   /* Semantic */
-  --success-color: #059669;
-  --success-bg: rgba(5, 150, 105, 0.12);
-  --warning-color: #d97706;
-  --warning-bg: rgba(217, 119, 6, 0.12);
-  --error-color: #dc2626;
-  --error-bg: rgba(220, 38, 38, 0.12);
-  --info-bg: rgba(56, 189, 248, 0.12);
-
-  /* Shadows & glow */
-  --shadow-sm: 0 2px 8px rgba(2, 132, 199, 0.06);
-  --shadow-md: 0 8px 24px rgba(2, 132, 199, 0.1);
-  --shadow-lg: 0 16px 40px rgba(2, 132, 199, 0.12);
-  --glow-subtle: 0 0 0 1px var(--border-soft);
-  --glass-shadow: 0 8px 32px rgba(2, 132, 199, 0.1);
+  --success-color: #10b981;
+  --success-bg: rgba(16, 185, 129, 0.15);
+  --warning-color: #f59e0b;
+  --warning-bg: rgba(245, 158, 11, 0.15);
+  --error-color: #ef4444;
+  --error-bg: rgba(239, 68, 68, 0.15);
+  --info-bg: rgba(16, 185, 129, 0.12);
 
   /* Radius */
-  --radius: 14px;
+  --radius: 16px;
   --radius-sm: 10px;
-  --radius-lg: 18px;
+  --radius-lg: 16px;
 
-  /* Transition */
   --transition: 0.25s ease;
 
   /* Sidebar */
   --sidebar-width: 260px;
   --sidebar-collapsed-width: 72px;
-  --sidebar-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(248, 250, 252, 0.98) 100%);
-  --sidebar-bg-solid: var(--surface-white);
-  --sidebar-bg-hover: rgba(224, 242, 254, 0.6);
-  --sidebar-border: var(--border-soft);
-  --sidebar-accent: var(--accent-gradient);
-  --sidebar-accent-hover: var(--accent-gradient-hover);
-  --sidebar-text: var(--text-muted);
-  --sidebar-text-active: var(--text-dark);
-  --sidebar-active-glow: 0 0 20px rgba(56, 189, 248, 0.2);
+  --sidebar-bg: var(--bg-secondary);
+  --sidebar-border: var(--border-subtle);
+  --sidebar-text: var(--text-secondary);
+  --sidebar-text-active: var(--text-primary);
+  --sidebar-active-bg: rgba(16, 185, 129, 0.12);
+  --sidebar-active-border: var(--accent-emerald);
+  --sidebar-hover-bg: rgba(255, 255, 255, 0.04);
   --sidebar-icon-size: 20px;
+
+  /* Legacy aliases */
+  --primary-blue: var(--accent-emerald);
+  --primary-blue-dark: var(--accent-emerald-dark);
+  --text-tertiary: var(--text-muted);
+  --border-color: var(--border-subtle);
+  --gray-100: rgba(255, 255, 255, 0.06);
+  --gray-500: var(--text-muted);
 }

@@ -2,6 +2,7 @@
 Authentication routes — backend-first. Supports multi-tenant (org) and legacy flows.
 """
 
+import logging
 import httpx
 from datetime import datetime
 from typing import Optional
@@ -9,14 +10,14 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Depends, Request
 from pydantic import BaseModel, EmailStr, Field
 
-from config import ADMIN_ACCESS_CODE, FIREBASE_WEB_API_KEY
+from config import ADMIN_ACCESS_CODE, FIREBASE_WEB_API_KEY, ENVIRONMENT
 from firebase_admin import firestore, auth as firebase_auth
 from middleware import verify_token, get_current_user, require_super_admin
 from rate_limit import limiter
 from schemas import STRICT_REQUEST_CONFIG
 
 router = APIRouter()
-
+logger = logging.getLogger(__name__)
 FIREBASE_AUTH_URL = "https://identitytoolkit.googleapis.com/v1/accounts"
 
 
@@ -114,7 +115,11 @@ async def login(request: Request, body: LoginRequest):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail="Login failed")
+        logger.exception("Login failed: %s", e)
+        detail = "Login failed"
+        if ENVIRONMENT == "development":
+            detail = f"Login failed: {str(e)}"
+        raise HTTPException(status_code=500, detail=detail)
 
 
 @router.post("/register")

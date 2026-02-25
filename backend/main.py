@@ -12,6 +12,7 @@ load_dotenv()
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.exceptions import HTTPException
 
 import firebase_admin
 from firebase_admin import credentials
@@ -76,9 +77,15 @@ app.add_middleware(CorsEnsureMiddleware)
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    """Return 500 with CORS headers so the browser can read the error instead of showing CORS block."""
+    """Return error with CORS headers. Preserve HTTPException status and detail."""
     origin = request.headers.get("origin") if request else None
     headers = cors_headers_for_origin(origin)
+    if isinstance(exc, HTTPException):
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"detail": exc.detail},
+            headers=headers,
+        )
     return JSONResponse(status_code=500, content={"detail": "Internal server error"}, headers=headers)
 
 

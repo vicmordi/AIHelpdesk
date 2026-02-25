@@ -7,7 +7,8 @@ OWASP: prevents brute-force and DoS; returns 429 with Retry-After for graceful b
 import json
 import os
 import re
-from fastapi import Request, Response
+from fastapi import Request
+from starlette.responses import Response
 from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address

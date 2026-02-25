@@ -13,6 +13,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import HTTPException
+from starlette.responses import Response
 
 import firebase_admin
 from firebase_admin import credentials
@@ -47,8 +48,11 @@ app = FastAPI(
 )
 
 # Rate limiting: IP-based, applies to all routes. Graceful 429 with Retry-After (OWASP).
+# RateLimitExceeded is handled first (returns 429); then generic Exception handler.
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
+# Middleware order (last added = outermost): CorsEnsure -> CORS -> SlowAPI -> app.
+# SlowAPI runs before app so rate limits are checked; 429 from handler when exceeded.
 app.add_middleware(SlowAPIMiddleware)
 
 # CORS: environment-driven. CORS_ORIGINS from env (comma-separated), or default list.
@@ -101,8 +105,8 @@ async def startup_event():
 # Health check / readiness endpoint (exempt from rate limit so load balancers don't get 429)
 @app.get("/")
 @limiter.exempt
-async def health(request: Request):
-    return {"status": "ok"}
+async def health(request: Request, response: Response):
+    return JSONResponse(content={"status": "ok"})
 
 
 # Include routers

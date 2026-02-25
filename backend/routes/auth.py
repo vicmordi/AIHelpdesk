@@ -8,7 +8,9 @@ from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Depends, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, EmailStr, Field
+from starlette.responses import Response
 
 from config import ADMIN_ACCESS_CODE, FIREBASE_WEB_API_KEY, ENVIRONMENT
 from firebase_admin import firestore, auth as firebase_auth
@@ -72,7 +74,7 @@ def _firebase_auth_request(endpoint: str, body: dict) -> dict:
 
 @router.post("/login")
 @limiter.limit("15/minute")  # Stricter limit for auth to mitigate brute-force (OWASP)
-async def login(request: Request, body: LoginRequest):
+async def login(request: Request, response: Response, body: LoginRequest):
     """
     Login requires organization_code, email, password.
     Backend finds org by code, validates user belongs to that org.
@@ -111,7 +113,7 @@ async def login(request: Request, body: LoginRequest):
 
         user_ref.update({"last_login": datetime.utcnow().isoformat()})
 
-        return {"token": data["idToken"], "email": data.get("email")}
+        return JSONResponse(content={"token": data["idToken"], "email": data.get("email")})
     except HTTPException:
         raise
     except Exception as e:
@@ -124,7 +126,7 @@ async def login(request: Request, body: LoginRequest):
 
 @router.post("/register")
 @limiter.limit("15/minute")  # Stricter limit for auth (OWASP)
-async def register(request: Request, body: RegisterRequest):
+async def register(request: Request, response: Response, body: RegisterRequest):
     """
     Legacy register: create user in Firebase Auth, create Firestore user doc (no org).
     For new organizations use POST /auth/register-org.
@@ -164,12 +166,12 @@ async def register(request: Request, body: RegisterRequest):
             "createdAt": datetime.utcnow().isoformat(),
         })
 
-        return {
+        return JSONResponse(content={
             "token": id_token,
             "uid": uid,
             "email": email,
             "role": requested_role,
-        }
+        })
     except HTTPException:
         raise
     except Exception as e:
@@ -178,7 +180,7 @@ async def register(request: Request, body: RegisterRequest):
 
 @router.post("/register-org")
 @limiter.limit("15/minute")  # Stricter limit for auth (OWASP)
-async def register_org(request: Request, body: RegisterOrgRequest):
+async def register_org(request: Request, response: Response, body: RegisterOrgRequest):
     """
     Multi-tenant registration: create organization and first user (super_admin).
     organization_code must be unique. Creates organization doc, Firebase user, user doc linked to org.
@@ -232,13 +234,13 @@ async def register_org(request: Request, body: RegisterOrgRequest):
             "createdAt": datetime.utcnow().isoformat(),  # backward compat
         })
 
-        return {
+        return JSONResponse(content={
             "token": id_token,
             "uid": uid,
             "email": email,
             "role": "super_admin",
             "organization_id": organization_id,
-        }
+        })
     except HTTPException:
         raise
     except Exception as e:

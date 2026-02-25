@@ -117,10 +117,10 @@ def cluster_tickets_by_similarity(
     threshold: float = SIMILARITY_THRESHOLD,
     min_size: int = CLUSTER_MIN_SIZE,
     openai_client: Optional[OpenAI] = None,
-) -> List[List[Dict[str, Any]]]:
+) -> List[Tuple[List[Dict[str, Any]], float]]:
     """
     Cluster tickets by embedding cosine similarity.
-    Returns list of clusters; each cluster is a list of tickets.
+    Returns list of (cluster, avg_similarity) tuples. avg_similarity used as confidence_score.
     """
     if len(tickets) < min_size:
         return []
@@ -136,13 +136,14 @@ def cluster_tickets_by_similarity(
     with_emb = [t for t in tickets if t.get("ticket_embedding")]
     if len(with_emb) < min_size:
         return []
-    # Simple clustering: group by similarity (greedy)
-    clusters: List[List[Dict[str, Any]]] = []
+    # Simple clustering: group by similarity (greedy), compute avg similarity per cluster
+    clusters: List[Tuple[List[Dict[str, Any]], float]] = []
     used = set()
     for i, t1 in enumerate(with_emb):
         if t1.get("id") in used:
             continue
         cluster = [t1]
+        sims = []
         used.add(t1.get("id"))
         e1 = t1["ticket_embedding"]
         for j, t2 in enumerate(with_emb):
@@ -151,9 +152,11 @@ def cluster_tickets_by_similarity(
             sim = _cosine_similarity(e1, t2["ticket_embedding"])
             if sim >= threshold:
                 cluster.append(t2)
+                sims.append(sim)
                 used.add(t2.get("id"))
         if len(cluster) >= min_size:
-            clusters.append(cluster)
+            avg_sim = sum(sims) / len(sims) if sims else threshold
+            clusters.append((cluster, avg_sim))
     return clusters
 
 
@@ -174,7 +177,7 @@ def _generate_kb_article_from_cluster(
     combined = "---ISSUES---\n" + "\n".join(summaries) + "\n---RESOLUTIONS---\n" + "\n".join(resolutions)
     system = """You are a knowledge base writer. Generate a structured IT helpdesk article from resolved ticket data.
 Use ONLY the provided ticket content. Do not add external knowledge.
-Output valid JSON with keys: title (clean, concise), content (step-by-step solution), category (single word), tags (array of 3-5 strings)."""
+Output valid JSON with keys: title (clean, concise), content (step-by-step solution), category (single word), tags (array of 3-5 strings), cluster_summary (one sentence describing the common issue pattern, max 100 chars)."""
     try:
         r = openai_client.chat.completions.create(
             model="gpt-3.5-turbo",
@@ -198,6 +201,7 @@ Output valid JSON with keys: title (clean, concise), content (step-by-step solut
             "content": (data.get("content") or "")[:50000],
             "category": (data.get("category") or "General")[:128],
             "tags": data.get("tags") or [],
+            "cluster_summary": (data.get("cluster_summary") or "Recurring issue from resolved tickets")[:200],
         }
     except Exception as e:
         logger.warning("KB article generation failed: %s", e)
@@ -206,6 +210,7 @@ Output valid JSON with keys: title (clean, concise), content (step-by-step solut
             "content": "Review and edit this article. Generated from ticket patterns.",
             "category": "General",
             "tags": [],
+            "cluster_summary": "Recurring issue from resolved tickets",
         }
 
 
@@ -236,24 +241,31 @@ def run_analysis_for_organization(
     client = openai_client or OpenAI(api_key=OPENAI_API_KEY)
     tickets = get_resolved_tickets(db, organization_id, RESOLVED_DAYS_WINDOW)
     logger.info("Knowledge improvement: org=%s, resolved tickets=%d", organization_id, len(tickets))
-    clusters = cluster_tickets_by_similarity(tickets, SIMILARITY_THRESHOLD, CLUSTER_MIN_SIZE, client)
+    clusters_with_sim = cluster_tickets_by_similarity(tickets, SIMILARITY_THRESHOLD, CLUSTER_MIN_SIZE, client)
     created = 0
     suggestions = []
-    for cluster in clusters:
+    for cluster, avg_similarity in clusters_with_sim:
         ticket_ids = sorted([t.get("id") for t in cluster if t.get("id")])
+        # cluster_id = hash of sorted ticket IDs — prevents duplicate suggestions for same cluster
         cluster_id = hashlib.sha256("|".join(ticket_ids).encode()).hexdigest()[:24]
         if check_cluster_already_suggested(db, organization_id, cluster_id):
             continue
         article = _generate_kb_article_from_cluster(cluster, client)
+        # confidence_score: 0–100 from avg similarity (0.85→85, 1.0→100)
+        confidence_score = min(100, max(0, int(avg_similarity * 100)))
         doc_data = {
             "organization_id": organization_id,
             "cluster_id": cluster_id,
             "ticket_ids": ticket_ids,
+            "related_ticket_ids": ticket_ids,  # alias for frontend
             "ticket_count": len(ticket_ids),
             "title": article["title"],
             "content": article["content"],
+            "generated_draft": article["content"],
             "category": article["category"],
             "tags": article.get("tags") or [],
+            "cluster_summary": article.get("cluster_summary") or "Recurring issue from resolved tickets",
+            "confidence_score": confidence_score,
             "status": "draft",
             "created_at": datetime.utcnow().isoformat(),
             "reviewed_at": None,
@@ -262,12 +274,109 @@ def run_analysis_for_organization(
         db.collection("knowledge_suggestions").add(doc_data)
         created += 1
         suggestions.append({**doc_data, "ticket_ids": ticket_ids})
-        logger.info("Created KB suggestion: title=%s, cluster_size=%d", article["title"], len(cluster))
+        logger.info("Created KB suggestion: title=%s, cluster_size=%d, confidence=%d", article["title"], len(cluster), confidence_score)
+    # Store last_analysis_run and recurring_issues_detected for analytics header
+    _update_analysis_metadata(db, organization_id, len(clusters_with_sim))
     return {
         "created": created,
-        "clusters_processed": len(clusters),
+        "clusters_processed": len(clusters_with_sim),
         "suggestions": suggestions,
     }
+
+
+def _update_analysis_metadata(db, organization_id: str, recurring_issues_detected: int) -> None:
+    """Store last analysis run timestamp, recurring issues count, and resolved count per org."""
+    resolved_ref = (
+        db.collection("tickets")
+        .where("organization_id", "==", organization_id)
+        .where("status", "in", ["closed", "resolved", "auto_resolved"])
+    )
+    resolved_count = sum(1 for _ in resolved_ref.stream())
+    ref = db.collection("knowledge_analysis_state").document(organization_id)
+    ref.set({
+        "organization_id": organization_id,
+        "last_analysis_run": datetime.utcnow().isoformat(),
+        "recurring_issues_detected": recurring_issues_detected,
+        "resolved_count_at_last_run": resolved_count,
+        "updated_at": datetime.utcnow().isoformat(),
+    }, merge=True)
+
+
+def get_suggestion_by_id(db, suggestion_id: str, organization_id: str) -> Optional[Dict[str, Any]]:
+    """
+    Fetch a single suggestion by ID with related ticket details.
+    Multi-tenant: enforces organization_id.
+    Returns full suggestion + related_tickets array (ticket_id, title, description, resolution, status, created_at).
+    """
+    ref = db.collection("knowledge_suggestions").document(suggestion_id)
+    doc = ref.get()
+    if not doc.exists:
+        return None
+    d = doc.to_dict()
+    if d.get("organization_id") != organization_id:
+        return None
+    d["id"] = doc.id
+    ticket_ids = d.get("ticket_ids") or d.get("related_ticket_ids") or []
+    # Fetch related tickets from Firestore
+    related_tickets = []
+    for tid in ticket_ids:
+        t_ref = db.collection("tickets").document(tid)
+        t_doc = t_ref.get()
+        if not t_doc.exists:
+            related_tickets.append({
+                "ticket_id": tid,
+                "title": "",
+                "description": "",
+                "resolution": "",
+                "status": "unknown",
+                "created_at": None,
+            })
+            continue
+        td = t_doc.to_dict()
+        if td.get("organization_id") != organization_id:
+            continue
+        resolution = _extract_resolution_from_ticket(td)
+        created_str = td.get("createdAt") or td.get("created_at") or ""
+        related_tickets.append({
+            "ticket_id": tid,
+            "title": (td.get("summary") or td.get("message") or "")[:200],
+            "description": (td.get("message") or td.get("summary") or "")[:1000],
+            "resolution": resolution[:2000] if resolution else "",
+            "status": td.get("status") or "unknown",
+            "created_at": created_str,
+        })
+    d["related_tickets"] = related_tickets
+    d["related_ticket_ids"] = ticket_ids
+    return d
+
+
+def update_suggestion(
+    db,
+    suggestion_id: str,
+    organization_id: str,
+    title: Optional[str] = None,
+    content: Optional[str] = None,
+    category: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Update draft suggestion (Edit Draft). Only draft status can be edited."""
+    ref = db.collection("knowledge_suggestions").document(suggestion_id)
+    doc = ref.get()
+    if not doc.exists:
+        return {"ok": False, "error": "Suggestion not found"}
+    d = doc.to_dict()
+    if d.get("organization_id") != organization_id:
+        return {"ok": False, "error": "Not your organization"}
+    if d.get("status") != "draft":
+        return {"ok": False, "error": f"Cannot edit suggestion with status {d.get('status')}"}
+    updates = {"updated_at": datetime.utcnow().isoformat()}
+    if title is not None:
+        updates["title"] = title[:200]
+    if content is not None:
+        updates["content"] = content[:50000]
+    if category is not None:
+        updates["category"] = category[:128]
+    ref.update(updates)
+    return {"ok": True}
 
 
 def get_suggestions(db, organization_id: str, status: Optional[str] = None) -> List[Dict[str, Any]]:
@@ -360,7 +469,18 @@ def get_analytics(db, organization_id: str) -> Dict[str, Any]:
         .where("status", "==", "draft")
     )
     draft_count = sum(1 for _ in suggestions_ref.stream())
+    # Fetch last analysis metadata
+    meta_ref = db.collection("knowledge_analysis_state").document(organization_id)
+    meta_doc = meta_ref.get()
+    last_analysis_run = None
+    recurring_issues_detected = 0
+    if meta_doc.exists:
+        meta = meta_doc.to_dict()
+        last_analysis_run = meta.get("last_analysis_run")
+        recurring_issues_detected = meta.get("recurring_issues_detected") or 0
     return {
         "recurring_issues_this_month": resolved_count,
         "suggested_articles_pending": draft_count,
+        "last_analysis_run": last_analysis_run,
+        "recurring_issues_detected": recurring_issues_detected,
     }

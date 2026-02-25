@@ -1506,6 +1506,15 @@ async def update_ticket_status(
             update_data["messages"] = messages
         ticket_ref.update(update_data)
         final_status = update_data["status"]
+        # Trigger Knowledge Improvement analysis when 10 new resolved tickets (background check)
+        if final_status in ("closed", "resolved", "auto_resolved"):
+            org_id = ticket_data.get("organization_id")
+            if org_id:
+                try:
+                    from background_scheduler import maybe_run_analysis_on_resolution
+                    maybe_run_analysis_on_resolution(org_id)
+                except Exception:
+                    pass  # Non-blocking; log in scheduler
         return {"message": "Ticket status updated successfully", "ticket_id": ticket_id, "status": final_status, "escalated": current_escalated}
     except HTTPException:
         raise

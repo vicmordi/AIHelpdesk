@@ -101,6 +101,13 @@ async def startup_event():
     Keeps startup fast and avoids Render timeouts.
     """
     init_firebase()
+    # Start Knowledge Improvement background scheduler (24h interval)
+    try:
+        from background_scheduler import start_scheduler
+        start_scheduler()
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning("KI scheduler not started: %s", e)
 
 
 # Health check / readiness endpoint (exempt from rate limit so load balancers don't get 429)

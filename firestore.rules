@@ -38,6 +38,11 @@ service cloud.firestore {
       allow read, write: if isAdmin();
     }
 
+    // Knowledge analysis state (last run, recurring issues count) — backend writes, admins read via API
+    match /knowledge_analysis_state/{orgId} {
+      allow read, write: if isAdmin();
+    }
+
     // Tickets collection
     match /tickets/{ticketId} {
       // Users can read their own tickets

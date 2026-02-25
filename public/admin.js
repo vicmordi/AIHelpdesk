@@ -81,8 +81,17 @@ function showPage(pageId) {
     }
     else if (pageId === "messages") loadMessagesPage();
     else if (pageId === "knowledge-improvement") {
-        if (currentUser?.role === "super_admin") loadKnowledgeImprovementPage();
-        else document.getElementById("ki-suggestions-list") && (document.getElementById("ki-suggestions-list").innerHTML = "<p class=\"empty-state\">Access denied. Super Admin only.</p>");
+        if (currentUser?.role !== "super_admin") {
+            document.getElementById("ki-suggestions-list") && (document.getElementById("ki-suggestions-list").innerHTML = "<p class=\"empty-state\">Access denied. Super Admin only.</p>");
+            return;
+        }
+        const subPart = (window.location.hash || "").split("/")[1];
+        const suggestionId = (window.location.hash || "").split("/")[2];
+        if (subPart === "review" && suggestionId) {
+            showSuggestionReviewPage(suggestionId);
+        } else {
+            loadKnowledgeImprovementPage();
+        }
     } else if (pageId === "users") {
         if (currentUser?.role === "super_admin") loadUserManagementPage();
         else document.getElementById("user-mgmt-table-wrap") && (document.getElementById("user-mgmt-table-wrap").innerHTML = "<p class=\"empty-state\">Access denied. Super Admin only.</p>");
@@ -353,6 +362,10 @@ async function loadKnowledgeAnalytics() {
 }
 
 async function loadKnowledgeImprovementPage() {
+    const listView = document.getElementById("ki-list-view");
+    const reviewView = document.getElementById("ki-review-view");
+    if (listView) listView.style.display = "";
+    if (reviewView) reviewView.style.display = "none";
     const listEl = document.getElementById("ki-suggestions-list");
     const filterEl = document.getElementById("ki-suggestions-filter");
     const runBtn = document.getElementById("ki-run-analysis-btn");
@@ -364,30 +377,44 @@ async function loadKnowledgeImprovementPage() {
     }
     const status = filterEl?.value || "draft";
     try {
-        const data = await apiRequest(`/admin/knowledge-improvement/suggestions?status=${status}`);
-        const suggestions = data.suggestions || [];
+        const [suggestionsData, analyticsData] = await Promise.all([
+            apiRequest(`/admin/knowledge-improvement/suggestions?status=${status}`),
+            apiRequest("/admin/knowledge-improvement/analytics").catch(() => ({})),
+        ]);
+        const suggestions = suggestionsData.suggestions || [];
+        // Update analytics header (Part 4)
+        const lastRun = analyticsData.last_analysis_run;
+        const recurringDetected = analyticsData.recurring_issues_detected ?? 0;
+        const lastEl = document.getElementById("ki-last-analysis");
+        const recurEl = document.getElementById("ki-recurring-detected");
+        if (lastEl) lastEl.textContent = lastRun ? formatLocalTime(lastRun) : "—";
+        if (recurEl) recurEl.textContent = String(recurringDetected);
         if (suggestions.length === 0) {
             listEl.innerHTML = `<p class="empty-state">No ${status === "all" ? "" : status} suggestions yet. Click "Run Analysis" to generate drafts from resolved tickets.</p>`;
         } else {
-            listEl.innerHTML = suggestions.map((s) => `
+            listEl.innerHTML = suggestions.map((s) => {
+                const conf = s.confidence_score != null ? s.confidence_score : "—";
+                const statusBadge = (s.status || "draft");
+                const badgeClass = statusBadge === "draft" ? "badge-warning" : statusBadge === "approved" ? "badge-success" : "badge-neutral";
+                return `
                 <div class="kb-article-card" data-suggestion-id="${escapeHtml(s.id)}">
                     <div class="kb-article-title">${escapeHtml(s.title || "Untitled")}</div>
-                    <div class="kb-article-meta" style="font-size: 12px; color: var(--text-tertiary); margin-top: 4px;">
-                        ${s.ticket_count || 0} tickets • ${s.category ? escapeHtml(s.category) : "—"} • ${s.status || "draft"}
-                        ${s.created_at ? ` • ${formatLocalTime(s.created_at)}` : ""}
+                    <div class="kb-article-meta" style="margin-top: 8px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center;">
+                        <span class="badge badge-info">${s.ticket_count || 0} tickets</span>
+                        ${conf !== "—" ? `<span class="badge badge-neutral">${conf}% confidence</span>` : ""}
+                        <span class="badge ${badgeClass}">${statusBadge}</span>
+                        ${s.category ? `<span style="font-size: 12px; color: var(--text-tertiary);">${escapeHtml(s.category)}</span>` : ""}
+                        ${s.created_at ? `<span style="font-size: 12px; color: var(--text-tertiary);">${formatLocalTime(s.created_at)}</span>` : ""}
                     </div>
                     <div class="kb-article-preview" style="margin-top: 8px; font-size: 13px; max-height: 60px; overflow: hidden; text-overflow: ellipsis;">
                         ${escapeHtml((s.content || "").slice(0, 150))}${(s.content || "").length > 150 ? "…" : ""}
                     </div>
-                    <div style="margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap;">
-                        ${(s.status || "") === "draft" ? `
-                            <button type="button" class="btn btn-small btn-primary view-suggestion-btn" data-id="${escapeHtml(s.id)}">View & Review</button>
-                        ` : `
-                            <button type="button" class="btn btn-small btn-secondary view-suggestion-btn" data-id="${escapeHtml(s.id)}">View</button>
-                        `}
+                    <div style="margin-top: 12px;">
+                        <button type="button" class="btn btn-small btn-primary view-suggestion-btn" data-id="${escapeHtml(s.id)}">${(s.status || "") === "draft" ? "View & Review" : "View"}</button>
                     </div>
                 </div>
-            `).join("");
+            `;
+            }).join("");
         }
         if (filterEl) {
             filterEl.onchange = () => loadKnowledgeImprovementPage();
@@ -398,7 +425,10 @@ async function loadKnowledgeImprovementPage() {
             runBtn.onclick = runKnowledgeAnalysis;
         }
         listEl.querySelectorAll(".view-suggestion-btn").forEach((btn) => {
-            btn.addEventListener("click", () => openSuggestionModal(btn.dataset.id));
+            btn.addEventListener("click", () => {
+                window.location.hash = `#knowledge-improvement/review/${btn.dataset.id}`;
+                showPage("knowledge-improvement");
+            });
         });
     } catch (e) {
         listEl.innerHTML = `<p class="error-message">${e.message || "Failed to load suggestions"}</p>`;
@@ -408,6 +438,108 @@ async function loadKnowledgeImprovementPage() {
             runBtn.onclick = runKnowledgeAnalysis;
         }
     }
+}
+
+async function showSuggestionReviewPage(suggestionId) {
+    const listView = document.getElementById("ki-list-view");
+    const reviewView = document.getElementById("ki-review-view");
+    const loadingEl = document.getElementById("ki-review-loading");
+    const contentEl = document.getElementById("ki-review-content");
+    const errorEl = document.getElementById("ki-review-error");
+    if (listView) listView.style.display = "none";
+    if (reviewView) reviewView.style.display = "";
+    if (loadingEl) { loadingEl.style.display = ""; loadingEl.textContent = "Loading suggestion..."; }
+    if (contentEl) contentEl.style.display = "none";
+    if (errorEl) errorEl.style.display = "none";
+    try {
+        const s = await apiRequest(`/admin/knowledge-improvement/suggestions/${suggestionId}`);
+        if (loadingEl) loadingEl.style.display = "none";
+        if (contentEl) contentEl.style.display = "";
+        document.getElementById("ki-review-title").textContent = s.title || "Untitled";
+        const statusBadge = document.getElementById("ki-review-status-badge");
+        if (statusBadge) {
+            statusBadge.textContent = s.status || "draft";
+            statusBadge.className = "badge " + ((s.status || "") === "draft" ? "badge-warning" : (s.status || "") === "approved" ? "badge-success" : "badge-neutral");
+        }
+        document.getElementById("ki-review-category").textContent = s.category || "—";
+        document.getElementById("ki-review-ticket-count").textContent = s.ticket_count || s.related_tickets?.length || 0;
+        document.getElementById("ki-review-confidence").textContent = s.confidence_score != null ? s.confidence_score : "—";
+        document.getElementById("ki-review-content-body").textContent = s.content || "";
+        document.getElementById("ki-edit-title").value = s.title || "";
+        document.getElementById("ki-edit-category").value = s.category || "";
+        document.getElementById("ki-edit-content").value = s.content || "";
+        const tickets = s.related_tickets || [];
+        const ticketsList = document.getElementById("ki-review-tickets-list");
+        if (ticketsList) {
+            if (tickets.length === 0) {
+                ticketsList.innerHTML = "<p class=\"empty-state\">No related ticket details available.</p>";
+            } else {
+                ticketsList.innerHTML = tickets.map((t) => `
+                    <div class="ticket-card" style="margin-bottom: 16px; padding: 12px; border: 1px solid var(--border); border-radius: var(--radius);">
+                        <div style="font-weight: 600;">Ticket ${escapeHtml(t.ticket_id || "")}</div>
+                        <div style="font-size: 12px; color: var(--text-tertiary); margin-top: 4px;">${t.created_at ? formatLocalTime(t.created_at) : ""} · ${escapeHtml(t.status || "")}</div>
+                        <div style="margin-top: 8px;"><strong>Title:</strong> ${escapeHtml((t.title || "").slice(0, 200))}</div>
+                        <div style="margin-top: 4px; font-size: 13px;"><strong>Description:</strong> ${escapeHtml((t.description || "").slice(0, 500))}${(t.description || "").length > 500 ? "…" : ""}</div>
+                        ${t.resolution ? `<div style="margin-top: 8px; font-size: 13px; padding: 8px; background: var(--bg-secondary); border-radius: var(--radius);"><strong>Resolution:</strong><br>${escapeHtml((t.resolution || "").slice(0, 1000))}${(t.resolution || "").length > 1000 ? "…" : ""}</div>` : ""}
+                    </div>
+                `).join("");
+            }
+        }
+        const isDraft = (s.status || "") === "draft";
+        document.getElementById("ki-approve-btn").style.display = isDraft ? "" : "none";
+        document.getElementById("ki-reject-btn").style.display = isDraft ? "" : "none";
+        document.getElementById("ki-edit-draft-btn").style.display = isDraft ? "" : "none";
+        document.getElementById("ki-edit-actions").style.display = "none";
+        document.getElementById("ki-review-view-mode").style.display = "";
+        document.getElementById("ki-review-edit-mode").style.display = "none";
+        document.getElementById("ki-approve-btn").onclick = () => approveKnowledgeSuggestion(s.id);
+        document.getElementById("ki-reject-btn").onclick = () => rejectKnowledgeSuggestion(s.id);
+        document.getElementById("ki-edit-draft-btn").onclick = () => {
+            document.getElementById("ki-review-view-mode").style.display = "none";
+            document.getElementById("ki-review-edit-mode").style.display = "";
+            document.getElementById("ki-approve-btn").style.display = "none";
+            document.getElementById("ki-reject-btn").style.display = "none";
+            document.getElementById("ki-edit-draft-btn").style.display = "none";
+            document.getElementById("ki-edit-actions").style.display = "";
+        };
+        document.getElementById("ki-cancel-edit-btn").onclick = () => {
+            document.getElementById("ki-review-view-mode").style.display = "";
+            document.getElementById("ki-review-edit-mode").style.display = "none";
+            document.getElementById("ki-approve-btn").style.display = "";
+            document.getElementById("ki-reject-btn").style.display = "";
+            document.getElementById("ki-edit-draft-btn").style.display = "";
+            document.getElementById("ki-edit-actions").style.display = "none";
+        };
+        document.getElementById("ki-save-draft-btn").onclick = () => saveDraftSuggestion(s.id);
+    } catch (e) {
+        if (loadingEl) loadingEl.style.display = "none";
+        if (errorEl) {
+            errorEl.textContent = e.message || "Failed to load suggestion";
+            errorEl.style.display = "";
+        }
+    }
+}
+
+async function saveDraftSuggestion(id) {
+    const title = document.getElementById("ki-edit-title")?.value?.trim();
+    const category = document.getElementById("ki-edit-category")?.value?.trim() || undefined;
+    const content = document.getElementById("ki-edit-content")?.value ?? "";
+    if (!title) { showError("Title is required"); return; }
+    try {
+        await apiRequest(`/admin/knowledge-improvement/suggestions/${id}`, {
+            method: "PUT",
+            body: JSON.stringify({ title, category, content }),
+        });
+        showSuccess("Draft saved.");
+        document.getElementById("ki-review-content-body").textContent = content;
+        document.getElementById("ki-review-view-mode").style.display = "";
+        document.getElementById("ki-review-edit-mode").style.display = "none";
+        document.getElementById("ki-approve-btn").style.display = "";
+        document.getElementById("ki-reject-btn").style.display = "";
+        document.getElementById("ki-edit-draft-btn").style.display = "";
+        document.getElementById("ki-edit-actions").style.display = "none";
+        document.getElementById("ki-review-title").textContent = title;
+    } catch (e) { showError(e.message || "Save failed"); }
 }
 
 async function runKnowledgeAnalysis() {
@@ -425,36 +557,11 @@ async function runKnowledgeAnalysis() {
     }
 }
 
-function openSuggestionModal(suggestionId) {
-    const modal = document.getElementById("suggestion-modal");
-    if (!modal) return;
-    apiRequest(`/admin/knowledge-improvement/suggestions?status=all`).then((data) => {
-        const s = (data.suggestions || []).find((x) => x.id === suggestionId);
-        if (!s) {
-            showError("Suggestion not found.");
-            return;
-        }
-        document.getElementById("suggestion-modal-id").value = s.id;
-        document.getElementById("suggestion-modal-title").textContent = s.title || "Untitled";
-        document.getElementById("suggestion-view-title").textContent = s.title || "Untitled";
-        document.getElementById("suggestion-view-category").textContent = s.category || "—";
-        document.getElementById("suggestion-view-content").textContent = s.content || "";
-        document.getElementById("suggestion-view-meta").textContent = `From ${s.ticket_count || 0} resolved ticket(s)${s.created_at ? ` • ${formatLocalTime(s.created_at)}` : ""}`;
-        const approveBtn = document.getElementById("suggestion-approve-btn");
-        const rejectBtn = document.getElementById("suggestion-reject-btn");
-        approveBtn.style.display = (s.status || "") === "draft" ? "" : "none";
-        rejectBtn.style.display = (s.status || "") === "draft" ? "" : "none";
-        approveBtn.onclick = () => approveKnowledgeSuggestion(s.id);
-        rejectBtn.onclick = () => rejectKnowledgeSuggestion(s.id);
-        modal.classList.add("visible");
-    }).catch((e) => showError(e.message || "Failed to load suggestion"));
-}
-
 async function approveKnowledgeSuggestion(id) {
     try {
         const data = await apiRequest(`/admin/knowledge-improvement/suggestions/${id}/approve`, { method: "POST" });
         showSuccess(data.message || "Article published.");
-        closeModal(document.getElementById("suggestion-modal"));
+        window.location.hash = "#knowledge-improvement";
         loadKnowledgeImprovementPage();
         if (currentUser?.role === "super_admin") loadKnowledgeAnalytics();
     } catch (e) { showError(e.message || "Approve failed"); }
@@ -465,7 +572,7 @@ async function rejectKnowledgeSuggestion(id) {
     try {
         await apiRequest(`/admin/knowledge-improvement/suggestions/${id}/reject`, { method: "POST" });
         showSuccess("Suggestion rejected.");
-        closeModal(document.getElementById("suggestion-modal"));
+        window.location.hash = "#knowledge-improvement";
         loadKnowledgeImprovementPage();
         if (currentUser?.role === "super_admin") loadKnowledgeAnalytics();
     } catch (e) { showError(e.message || "Reject failed"); }

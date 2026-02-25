@@ -1,3 +1,7 @@
+# Deploy to Firebase Hosting
+# - main: uses action-hosting-deploy (unchanged)
+# - dev: direct Firebase CLI (avoids npx/registry 403 issues)
+
 name: Deploy to Firebase Hosting
 
 on:
@@ -7,29 +11,45 @@ on:
       - dev
 
 jobs:
-  build_and_deploy:
+  # Main branch: deploy to live channel (unchanged — do not break)
+  deploy_main:
+    if: github.ref == 'refs/heads/main'
+    name: Deploy to Live
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-
-      # Deploy to LIVE when pushing to main branch
-      - name: Deploy to Live Channel
-        if: github.ref == 'refs/heads/main'
-        uses: FirebaseExtended/action-hosting-deploy@v0
+      - uses: actions/checkout@v4
+      - uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
           firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_AIHELPDESK_21060 }}
           channelId: live
           projectId: aihelpdesk-21060
 
-      # Deploy to PREVIEW channel when pushing to dev branch
-      - name: Deploy to Dev Preview Channel
-        if: github.ref == 'refs/heads/dev'
-        uses: FirebaseExtended/action-hosting-deploy@v0
+  # Dev branch: direct CLI deploy to preview channel (avoids npx firebase-tools 403)
+  deploy_dev_preview:
+    if: github.ref == 'refs/heads/dev'
+    name: Deploy to Dev Preview
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          repoToken: ${{ secrets.GITHUB_TOKEN }}
-          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_AIHELPDESK_21060 }}
-          channelId: dev
-          projectId: aihelpdesk-21060
+          node-version: '20'
+
+      # Explicit public registry — fixes 403 Forbidden on registry.npmjs.org
+      - name: Set npm registry
+        run: npm config set registry https://registry.npmjs.org/
+
+      # Pinned version — avoid npx firebase-tools@latest (causes 403)
+      - name: Install Firebase CLI
+        run: npm install -g firebase-tools@13.15.0
+
+      - name: Validate public folder
+        run: test -d public || (echo "::error::public folder missing" && exit 1)
+
+      # FIREBASE_TOKEN: add secret in repo Settings → Secrets (from `firebase login:ci`)
+      - name: Deploy to Firebase preview channel
+        run: firebase hosting:channel:deploy dev --expires 7d --project aihelpdesk-21060 --non-interactive --token "${{ secrets.FIREBASE_TOKEN }}"

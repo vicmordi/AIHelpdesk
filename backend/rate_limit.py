@@ -6,10 +6,14 @@ OWASP: prevents brute-force and DoS; returns 429 with Retry-After for graceful b
 
 import json
 import os
+import re
 from fastapi import Request, Response
 from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
+
+# Same pattern as config.CORS_ORIGIN_REGEX so 429 responses can add CORS when middleware is skipped
+_CORS_ORIGIN_PATTERN = re.compile(r"^https://[^/]+\.(web\.app|firebaseapp\.com)$")
 
 
 def _get_identifier(request: Request) -> str:
@@ -37,6 +41,7 @@ limiter = Limiter(
 def rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded) -> Response:
     """
     Return 429 with JSON body and Retry-After header.
+    Adds CORS headers so browsers don't block when this response bypasses CORS middleware.
     OWASP: consistent error format; clients can back off and retry.
     """
     retry_after_seconds = 60
@@ -44,9 +49,14 @@ def rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded) -> Res
         "detail": "Too many requests. Please slow down and retry later.",
         "retry_after_seconds": retry_after_seconds,
     }
+    headers = {"Retry-After": str(retry_after_seconds)}
+    origin = request.headers.get("origin")
+    if origin and _CORS_ORIGIN_PATTERN.match(origin):
+        headers["Access-Control-Allow-Origin"] = origin
+        headers["Access-Control-Allow-Credentials"] = "true"
     return Response(
         content=json.dumps(body),
         status_code=429,
         media_type="application/json",
-        headers={"Retry-After": str(retry_after_seconds)},
+        headers=headers,
     )

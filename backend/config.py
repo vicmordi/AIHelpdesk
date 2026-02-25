@@ -30,8 +30,8 @@ _DEFAULT_CORS_ORIGINS = "https://aihelpdesk-21060.web.app,https://aihelpdesk-210
 _cors_raw = os.getenv("CORS_ORIGINS", _DEFAULT_CORS_ORIGINS)
 CORS_ORIGINS = [s.strip() for s in _cors_raw.split(",") if s.strip()]
 
-# Regex to allow any Firebase Hosting origin (*.web.app) for preview channels
-CORS_ORIGIN_REGEX = r"^https://[^/]+\.web\.app$"
+# Regex to allow any Firebase Hosting origin (production + preview channels like *--*.web.app)
+CORS_ORIGIN_REGEX = r"^https://[^/]+\.(web\.app|firebaseapp\.com)$"
 
 # ENV: "development" vs "production" (optional)
 ENVIRONMENT = os.getenv("ENV", os.getenv("ENVIRONMENT", "production")).lower()

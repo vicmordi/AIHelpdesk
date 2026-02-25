@@ -49,9 +49,17 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          registry-url: https://registry.npmjs.org/
 
-      # Reset npm to avoid registry/auth corruption
+      # GitHub injects NODE_AUTH_TOKEN when setup-node uses registry-url; npm then uses it
+      # for ALL registry requests. Public registry rejects this and returns 403 Forbidden.
+      # Must clear it before any npm/npx so public packages (firebase-tools, @google-cloud/*)
+      # are fetched without auth.
+      - name: Remove injected npm auth
+        run: |
+          unset NODE_AUTH_TOKEN
+          npm config delete //registry.npmjs.org/:_authToken || true
+          echo "Cleared npm auth token"
+
       - name: Reset npm configuration
         run: |
           npm cache clean --force

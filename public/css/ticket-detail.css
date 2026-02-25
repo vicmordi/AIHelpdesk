@@ -63,10 +63,10 @@
     font-size: 13px;
 }
 
-.ticket-detail-badge.status-closed { background: var(--success-bg); color: #6ee7b7; }
-.ticket-detail-badge.status-escalated { background: var(--error-bg); color: #fca5a5; }
-.ticket-detail-badge.status-in-progress { background: var(--warning-bg); color: #fcd34d; }
-.ticket-detail-badge.status-open { background: var(--info-bg); color: var(--accent-glow); }
+.ticket-detail-badge.status-closed { background: var(--success-bg); color: #8bb89a; }
+.ticket-detail-badge.status-escalated { background: var(--error-bg); color: #c99a9a; }
+.ticket-detail-badge.status-in-progress { background: var(--warning-bg); color: #d4a574; }
+.ticket-detail-badge.status-open { background: var(--info-bg); color: #d4a574; }
 
 .ticket-detail-admin-controls {
     margin-top: 16px;
@@ -131,9 +131,9 @@
 }
 
 .ticket-tab.active {
-    background: var(--btn-primary-bg);
+    background: var(--accent-primary);
     color: #fff;
-    box-shadow: 0 0 16px rgba(16, 185, 129, 0.3);
+    box-shadow: var(--shadow-sm);
 }
 
 .ticket-tab-panel {
@@ -222,8 +222,8 @@
 .ticket-chat-bubble.admin,
 .ticket-chat-bubble.ai {
     align-self: flex-start;
-    background: rgba(16, 185, 129, 0.15);
-    border: 1px solid rgba(16, 185, 129, 0.25);
+    background: rgba(184, 115, 51, 0.1);
+    border: 1px solid rgba(184, 115, 51, 0.2);
     color: var(--text-primary);
 }
 
@@ -269,8 +269,8 @@
 
 .ticket-chat-form textarea:focus {
     outline: none;
-    border-color: var(--accent-emerald);
-    box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.2);
+    border-color: var(--accent-primary);
+    box-shadow: 0 0 0 3px rgba(184, 115, 51, 0.15);
 }
 
 .ticket-chat-form .btn {

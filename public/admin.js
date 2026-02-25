@@ -1053,7 +1053,7 @@ function updateDashboardCharts(tickets) {
                 labels: ["Resolved", "In Progress", "Escalated", "Open"],
                 datasets: [{
                     data: [resolved, inProgress, escalated, open],
-                    backgroundColor: ["#10b981", "#f59e0b", "#ef4444", "#64748b"],
+                    backgroundColor: ["#5a8f6a", "#c4956a", "#a65d5d", "#b87333"],
                     borderWidth: 0,
                 }],
             },
@@ -1061,7 +1061,10 @@ function updateDashboardCharts(tickets) {
                 responsive: true,
                 maintainAspectRatio: false,
                 plugins: {
-                    legend: { position: "bottom" },
+                    legend: {
+                        position: "bottom",
+                        labels: { color: "#c4c7cc" },
+                    },
                 },
             },
         });
@@ -1098,8 +1101,8 @@ function updateDashboardCharts(tickets) {
                 datasets: [{
                     label: "Tickets",
                     data: counts,
-                    backgroundColor: "rgba(16, 185, 129, 0.8)",
-                    borderColor: "rgb(16, 185, 129)",
+                    backgroundColor: "rgba(184, 115, 51, 0.8)",
+                    borderColor: "rgb(184, 115, 51)",
                     borderWidth: 1,
                 }],
             },
@@ -1107,7 +1110,15 @@ function updateDashboardCharts(tickets) {
                 responsive: true,
                 maintainAspectRatio: false,
                 scales: {
-                    y: { beginAtZero: true, ticks: { stepSize: 1 } },
+                    y: {
+                        beginAtZero: true,
+                        ticks: { stepSize: 1, color: "#8b8f98" },
+                        grid: { color: "rgba(255,255,255,0.06)" },
+                    },
+                    x: {
+                        ticks: { color: "#8b8f98" },
+                        grid: { color: "rgba(255,255,255,0.06)" },
+                    },
                 },
                 plugins: {
                     legend: { display: false },

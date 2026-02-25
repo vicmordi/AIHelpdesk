@@ -33,6 +33,11 @@ service cloud.firestore {
       allow read, write: if isAdmin();
     }
     
+    // Knowledge suggestions (auto-generated KB drafts from resolved tickets)
+    match /knowledge_suggestions/{suggestionId} {
+      allow read, write: if isAdmin();
+    }
+
     // Tickets collection
     match /tickets/{ticketId} {
       // Users can read their own tickets

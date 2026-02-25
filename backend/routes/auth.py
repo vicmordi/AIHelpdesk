@@ -6,12 +6,14 @@ import httpx
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Depends
-from pydantic import BaseModel, EmailStr
+from fastapi import APIRouter, HTTPException, Depends, Request
+from pydantic import BaseModel, EmailStr, Field
 
 from config import ADMIN_ACCESS_CODE, FIREBASE_WEB_API_KEY
 from firebase_admin import firestore, auth as firebase_auth
 from middleware import verify_token, get_current_user, require_super_admin
+from rate_limit import limiter
+from schemas import STRICT_REQUEST_CONFIG
 
 router = APIRouter()
 
@@ -23,25 +25,28 @@ def get_db():
 
 
 class LoginRequest(BaseModel):
+    model_config = STRICT_REQUEST_CONFIG
     email: EmailStr
-    password: str
-    organization_code: Optional[str] = None  # Required for org users; optional for legacy
+    password: str = Field(..., min_length=1, max_length=128)
+    organization_code: Optional[str] = Field(None, max_length=64)
 
 
 class RegisterRequest(BaseModel):
+    model_config = STRICT_REQUEST_CONFIG
     email: EmailStr
-    password: str
-    role: str = "employee"
-    admin_code: Optional[str] = None
+    password: str = Field(..., min_length=6, max_length=128)
+    role: str = Field(default="employee", pattern="^(employee|admin)$")
+    admin_code: Optional[str] = Field(None, max_length=128)
 
 
 class RegisterOrgRequest(BaseModel):
     """Multi-tenant registration: creates organization + super_admin user."""
-    organization_name: str
-    organization_code: str
-    super_admin_name: str = ""
+    model_config = STRICT_REQUEST_CONFIG
+    organization_name: str = Field(..., min_length=1, max_length=256)
+    organization_code: str = Field(..., min_length=2, max_length=64)
+    super_admin_name: str = Field(default="", max_length=256)
     email: EmailStr
-    password: str
+    password: str = Field(..., min_length=6, max_length=128)
 
 
 def _firebase_auth_request(endpoint: str, body: dict) -> dict:
@@ -65,26 +70,27 @@ def _firebase_auth_request(endpoint: str, body: dict) -> dict:
 
 
 @router.post("/login")
-async def login(request: LoginRequest):
+@limiter.limit("15/minute")  # Stricter limit for auth to mitigate brute-force (OWASP)
+async def login(request: Request, body: LoginRequest):
     """
     Login requires organization_code, email, password.
     Backend finds org by code, validates user belongs to that org.
     Prevents cross-organization access.
     """
-    if not (request.organization_code or "").strip():
+    if not (body.organization_code or "").strip():
         raise HTTPException(status_code=400, detail="Organization code is required")
 
     try:
         data = _firebase_auth_request("signInWithPassword", {
-            "email": request.email,
-            "password": request.password,
+            "email": body.email,
+            "password": body.password,
             "returnSecureToken": True,
         })
         uid = data["localId"]
         db = get_db()
 
         orgs_ref = db.collection("organizations")
-        orgs = orgs_ref.where("organization_code", "==", request.organization_code.strip()).limit(1).stream()
+        orgs = orgs_ref.where("organization_code", "==", body.organization_code.strip()).limit(1).stream()
         org_doc = next(orgs, None)
         if not org_doc:
             raise HTTPException(status_code=401, detail="Invalid organization code")
@@ -112,13 +118,14 @@ async def login(request: LoginRequest):
 
 
 @router.post("/register")
-async def register(request: RegisterRequest):
+@limiter.limit("15/minute")  # Stricter limit for auth (OWASP)
+async def register(request: Request, body: RegisterRequest):
     """
     Legacy register: create user in Firebase Auth, create Firestore user doc (no org).
     For new organizations use POST /auth/register-org.
     """
     try:
-        requested_role = (request.role or "employee").lower()
+        requested_role = (body.role or "employee").lower()
         if requested_role not in ["employee", "admin"]:
             requested_role = "employee"
 
@@ -128,19 +135,19 @@ async def register(request: RegisterRequest):
                     status_code=403,
                     detail="Admin registration is not configured."
                 )
-            if not request.admin_code or request.admin_code != ADMIN_ACCESS_CODE:
+            if not body.admin_code or body.admin_code != ADMIN_ACCESS_CODE:
                 raise HTTPException(
                     status_code=403,
                     detail="Invalid admin access code."
                 )
 
         data = _firebase_auth_request("signUp", {
-            "email": request.email,
-            "password": request.password,
+            "email": body.email,
+            "password": body.password,
             "returnSecureToken": True,
         })
         uid = data["localId"]
-        email = data.get("email", request.email)
+        email = data.get("email", body.email)
         id_token = data["idToken"]
 
         db = get_db()
@@ -165,16 +172,17 @@ async def register(request: RegisterRequest):
 
 
 @router.post("/register-org")
-async def register_org(request: RegisterOrgRequest):
+@limiter.limit("15/minute")  # Stricter limit for auth (OWASP)
+async def register_org(request: Request, body: RegisterOrgRequest):
     """
     Multi-tenant registration: create organization and first user (super_admin).
     organization_code must be unique. Creates organization doc, Firebase user, user doc linked to org.
     """
     try:
-        code = (request.organization_code or "").strip()
+        code = (body.organization_code or "").strip()
         if not code:
             raise HTTPException(status_code=400, detail="organization_code is required")
-        name = (request.organization_name or "").strip()
+        name = (body.organization_name or "").strip()
         if not name:
             raise HTTPException(status_code=400, detail="organization_name is required")
 
@@ -187,12 +195,12 @@ async def register_org(request: RegisterOrgRequest):
 
         # Create Firebase user
         data = _firebase_auth_request("signUp", {
-            "email": request.email,
-            "password": request.password,
+            "email": body.email,
+            "password": body.password,
             "returnSecureToken": True,
         })
         uid = data["localId"]
-        email = data.get("email", request.email)
+        email = data.get("email", body.email)
         id_token = data["idToken"]
 
         # Create organization doc
@@ -206,7 +214,7 @@ async def register_org(request: RegisterOrgRequest):
         organization_id = org_ref.id
 
         # Create user doc with role super_admin and organization_id
-        full_name = (request.super_admin_name or "").strip() or email
+        full_name = (body.super_admin_name or "").strip() or email
         user_ref = db.collection("users").document(uid)
         user_ref.set({
             "uid": uid,
@@ -248,8 +256,9 @@ async def me(current_user: dict = Depends(get_current_user)):
 
 
 class ChangePasswordRequest(BaseModel):
-    current_password: str
-    new_password: str
+    model_config = STRICT_REQUEST_CONFIG
+    current_password: str = Field(..., min_length=1, max_length=128)
+    new_password: str = Field(..., min_length=6, max_length=128)
 
 
 @router.post("/change-password")
@@ -290,8 +299,9 @@ async def change_password(
 
 
 class CreateOrgForLegacyRequest(BaseModel):
-    organization_name: str
-    organization_code: str
+    model_config = STRICT_REQUEST_CONFIG
+    organization_name: str = Field(..., min_length=1, max_length=256)
+    organization_code: str = Field(..., min_length=2, max_length=64)
 
 
 @router.post("/create-org-for-legacy")

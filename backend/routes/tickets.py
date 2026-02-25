@@ -3,7 +3,7 @@ Ticket routes with AI resolution
 """
 
 from fastapi import APIRouter, HTTPException, Depends
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import List, Optional
 from fastapi import Query
 from datetime import datetime
@@ -13,6 +13,7 @@ import json
 from firebase_admin import firestore
 from config import OPENAI_API_KEY
 from middleware import verify_token, verify_admin, get_current_user, require_admin_or_above, require_super_admin
+from schemas import STRICT_REQUEST_CONFIG
 from flow_engine import (
     get_article_type,
     get_escalation_reply,
@@ -273,12 +274,14 @@ SUPPORT_CONFIRMATION_MSG = "Please confirm if this resolves your issue."
 
 
 class TicketRequest(BaseModel):
-    message: str
+    model_config = STRICT_REQUEST_CONFIG
+    message: str = Field(..., min_length=1, max_length=10_000)
 
 
 class MessageRequest(BaseModel):
-    message: str
-    sender: str  # Will be validated on backend based on user role
+    model_config = STRICT_REQUEST_CONFIG
+    message: str = Field(..., min_length=1, max_length=10_000)
+    sender: str = Field(..., max_length=32)  # Validated on backend based on user role
 
 
 # --- Guided troubleshooting: human-like conversational flow ---

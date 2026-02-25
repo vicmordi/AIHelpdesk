@@ -1,6 +1,7 @@
 """
-Configuration - Environment variables only.
+Configuration - Environment variables only. No hard-coded secrets.
 Firebase Admin SDK is initialized in main.py via GOOGLE_APPLICATION_CREDENTIALS (JSON string).
+OWASP: All secrets from env; rotate keys periodically (see ENV_TEMPLATE.md).
 """
 
 import os
@@ -14,7 +15,7 @@ ADMIN_ACCESS_CODE = os.getenv("ADMIN_ACCESS_CODE", "")
 # Firebase Web API Key - used by backend only for Auth REST API (signIn/signUp)
 FIREBASE_WEB_API_KEY = os.getenv("FIREBASE_WEB_API_KEY", "")
 
-# Public config for frontend (no secrets) - used by GET /api/config
+# Public config for frontend (no secrets) - never include API keys or service account
 API_BASE_URL = os.getenv("API_BASE_URL", "").rstrip("/")
 FIREBASE_PUBLIC_API_KEY = os.getenv("FIREBASE_PUBLIC_API_KEY", "")
 FIREBASE_AUTH_DOMAIN = os.getenv("FIREBASE_AUTH_DOMAIN", "")

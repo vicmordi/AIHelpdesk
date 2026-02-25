@@ -5,10 +5,11 @@ Organization settings. Super_admin only. organization_id is primary; code is for
 from datetime import datetime
 from typing import Optional
 from fastapi import APIRouter, HTTPException, Depends
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from firebase_admin import firestore
 
 from middleware import require_super_admin, get_current_user, require_admin_or_above
+from schemas import STRICT_REQUEST_CONFIG
 
 router = APIRouter()
 
@@ -18,12 +19,14 @@ def get_db():
 
 
 class UpdateCodeRequest(BaseModel):
-    organization_code: str
+    model_config = STRICT_REQUEST_CONFIG
+    organization_code: str = Field(..., min_length=2, max_length=64)
 
 
 class UpdateOrganizationRequest(BaseModel):
-    name: Optional[str] = None
-    organization_code: Optional[str] = None
+    model_config = STRICT_REQUEST_CONFIG
+    name: Optional[str] = Field(None, min_length=1, max_length=256)
+    organization_code: Optional[str] = Field(None, min_length=2, max_length=64)
 
 
 @router.get("")

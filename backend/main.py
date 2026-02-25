@@ -9,13 +9,17 @@ import os
 from dotenv import load_dotenv
 load_dotenv()
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 import firebase_admin
 from firebase_admin import credentials
 
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
+
 from config import CORS_ORIGINS, CORS_ORIGIN_REGEX, ENVIRONMENT
+from rate_limit import limiter, rate_limit_exceeded_handler
 from routes import auth, knowledge_base, tickets, admin, organization, messages, notifications
 
 
@@ -38,6 +42,11 @@ app = FastAPI(
     description="AI-powered helpdesk with knowledge base and ticket management",
     version="1.0.0"
 )
+
+# Rate limiting: IP-based, applies to all routes. Graceful 429 with Retry-After (OWASP).
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
+app.add_middleware(SlowAPIMiddleware)
 
 # CORS: environment-driven. CORS_ORIGINS from env (comma-separated), or default list.
 # allow_origin_regex permits any Firebase Hosting origin (*.web.app) for preview channels.
@@ -69,9 +78,10 @@ async def startup_event():
     init_firebase()
 
 
-# Health check / readiness endpoint
+# Health check / readiness endpoint (exempt from rate limit so load balancers don't get 429)
 @app.get("/")
-def health():
+@limiter.exempt
+async def health(request: Request):
     return {"status": "ok"}
 
 

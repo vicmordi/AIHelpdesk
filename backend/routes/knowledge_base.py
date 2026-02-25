@@ -3,12 +3,13 @@ Knowledge Base routes (Admin only)
 """
 
 from fastapi import APIRouter, HTTPException, Depends
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any  # noqa: F401
 from datetime import datetime
 from firebase_admin import firestore
 from middleware import require_admin_or_above, require_super_admin
 from flow_engine import normalize_article_to_flow, convert_legacy_content_to_flow
+from schemas import STRICT_REQUEST_CONFIG
 
 router = APIRouter()
 
@@ -19,13 +20,15 @@ def get_db():
 
 
 class KnowledgeBaseArticle(BaseModel):
-    title: str
-    content: str
-    category: Optional[str] = None
-    type: Optional[str] = None  # "static" | "guided" (legacy)
-    article_type: Optional[str] = None  # "flow" | "guide" | "single_action" | "reference"
-    trigger_phrases: Optional[List[str]] = None
-    flow: Optional[List[Dict[str, Any]]] = None
+    """Strict validation: known fields only, length limits (OWASP)."""
+    model_config = STRICT_REQUEST_CONFIG
+    title: str = Field(..., min_length=1, max_length=500)
+    content: str = Field(..., min_length=1, max_length=100_000)
+    category: Optional[str] = Field(None, max_length=128)
+    type: Optional[str] = Field(None, max_length=64)
+    article_type: Optional[str] = Field(None, max_length=64)
+    trigger_phrases: Optional[List[str]] = Field(None, max_length=200)
+    flow: Optional[List[Dict[str, Any]]] = Field(None, max_length=500)
     guided_flow: Optional[bool] = False
     guided_branches: Optional[Dict[str, Any]] = None
     branches: Optional[Dict[str, Any]] = None

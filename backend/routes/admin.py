@@ -5,10 +5,11 @@ Admin-only routes. Super_admin only for user management and support admin CRUD.
 from datetime import datetime
 from typing import Optional
 from fastapi import APIRouter, HTTPException, Depends
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 from firebase_admin import auth as firebase_auth, firestore
 
 from middleware import require_super_admin
+from schemas import STRICT_REQUEST_CONFIG
 
 router = APIRouter()
 
@@ -31,20 +32,23 @@ def _ensure_org_and_same_org(current_user: dict, target_uid: Optional[str] = Non
 
 
 class CreateSupportAdminRequest(BaseModel):
-    full_name: str
+    model_config = STRICT_REQUEST_CONFIG
+    full_name: str = Field(..., min_length=1, max_length=256)
     email: EmailStr
-    temporary_password: str
+    temporary_password: str = Field(..., min_length=6, max_length=128)
 
 
 class CreateEmployeeRequest(BaseModel):
-    full_name: str
+    model_config = STRICT_REQUEST_CONFIG
+    full_name: str = Field(..., min_length=1, max_length=256)
     email: EmailStr
-    temporary_password: str
+    temporary_password: str = Field(..., min_length=6, max_length=128)
 
 
 class ResetSupportAdminPasswordRequest(BaseModel):
-    uid: str
-    new_password: str
+    model_config = STRICT_REQUEST_CONFIG
+    uid: str = Field(..., min_length=1, max_length=128)
+    new_password: str = Field(..., min_length=6, max_length=128)
 
 
 @router.get("/users")

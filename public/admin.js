@@ -1555,7 +1555,7 @@ function updateDashboardCharts(tickets) {
                 labels: ["Resolved", "In Progress", "Escalated", "Open"],
                 datasets: [{
                     data: [resolved, inProgress, escalated, open],
-                    backgroundColor: ["#5a8f6a", "#c4956a", "#a65d5d", "#b87333"],
+                    backgroundColor: ["#34d399", "#fbbf24", "#f87171", "#4f46e5"],
                     borderWidth: 0,
                 }],
             },
@@ -1603,8 +1603,8 @@ function updateDashboardCharts(tickets) {
                 datasets: [{
                     label: "Tickets",
                     data: counts,
-                    backgroundColor: "rgba(184, 115, 51, 0.8)",
-                    borderColor: "rgb(184, 115, 51)",
+                    backgroundColor: "rgba(79, 70, 229, 0.8)",
+                    borderColor: "rgb(79, 70, 229)",
                     borderWidth: 1,
                 }],
             },
@@ -1728,7 +1728,7 @@ function updateActivityCharts(data) {
         }
         const labels = Object.keys(actionsGrouped);
         const values = Object.values(actionsGrouped);
-        const colors = ["#5a8f6a", "#c4956a", "#a65d5d", "#b87333", "#6a8fa6", "#8f6a9e", "#8f8a6a"];
+        const colors = ["#34d399", "#fbbf24", "#f87171", "#4f46e5", "#06b6d4", "#8b5cf6", "#64748b"];
         activityPieChart = new ChartLib(pieCtx, {
             type: "doughnut",
             data: {

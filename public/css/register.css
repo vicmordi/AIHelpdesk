@@ -20,7 +20,7 @@
     content: "";
     position: absolute;
     inset: 0;
-    background: radial-gradient(circle at 10% 10%, rgba(184, 115, 51, 0.05), transparent 50%);
+    background: radial-gradient(circle at 10% 10%, rgba(79, 70, 229, 0.06), transparent 50%);
     pointer-events: none;
 }
 
@@ -107,8 +107,8 @@
 
 .register-field input:focus {
     outline: none;
-    border-color: var(--accent-primary);
-    box-shadow: 0 0 0 3px rgba(184, 115, 51, 0.15);
+    border-color: var(--brand-start);
+    box-shadow: 0 0 0 3px var(--brand-gradient-glow);
 }
 
 .register-field input::placeholder {
@@ -128,18 +128,18 @@
     font-size: 14px;
     font-weight: 600;
     color: #fff;
-    background: var(--accent-primary);
+    background: var(--brand-gradient);
     border: none;
     border-radius: var(--radius-sm);
     cursor: pointer;
     font-family: inherit;
     transition: background var(--transition), box-shadow var(--transition);
-    box-shadow: var(--shadow-sm);
+    box-shadow: 0 2px 12px var(--brand-gradient-glow);
 }
 
 .register-submit:hover {
-    background: var(--accent-dark);
-    box-shadow: var(--shadow-md);
+    background: var(--brand-gradient-hover);
+    box-shadow: 0 4px 20px var(--brand-gradient-glow);
 }
 
 .register-submit:active {
@@ -154,7 +154,7 @@
 }
 
 .register-footer a {
-    color: var(--accent-primary);
+    color: var(--brand-end);
     text-decoration: none;
 }
 

@@ -53,8 +53,8 @@
     width: 36px;
     height: 36px;
     border-radius: var(--radius-sm);
-    background: var(--accent-primary);
-    box-shadow: var(--shadow-sm);
+    background: var(--brand-gradient);
+    box-shadow: 0 2px 12px var(--brand-gradient-glow);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -65,7 +65,10 @@
 .sidebar-brand-text {
     font-size: 17px;
     font-weight: 700;
-    color: var(--sidebar-text-active);
+    background: var(--brand-gradient);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
     letter-spacing: -0.02em;
     white-space: nowrap;
 }
@@ -107,14 +110,14 @@
 
 .sidebar-link.active {
     background: var(--sidebar-active-bg);
-    color: var(--accent-primary);
+    color: var(--brand-end);
     font-weight: 600;
     border-left: 3px solid var(--sidebar-active-border);
 }
 
 .sidebar-link.active:hover {
     background: var(--sidebar-active-bg);
-    color: #d4a574;
+    color: #67e8f9;
 }
 
 .sidebar-link-icon {
@@ -173,7 +176,7 @@
     width: 36px;
     height: 36px;
     border-radius: var(--radius-sm);
-    background: var(--accent-primary);
+    background: var(--brand-gradient);
     color: #fff;
     display: flex;
     align-items: center;
@@ -291,7 +294,7 @@
     padding: 4px 10px;
     border-radius: 20px;
     background: var(--info-bg);
-    color: #d4a574;
+    color: #67e8f9;
 }
 .kb-card-preview { font-size: 14px; color: var(--text-secondary); margin: 0 0 12px; line-height: 1.5; }
 .kb-card-meta { font-size: 12px; color: var(--gray-500); display: flex; gap: 16px; margin-bottom: 12px; }
@@ -398,7 +401,7 @@
 .ticket-row-dot.dot-resolved { background: #5a8f6a; }
 .ticket-row-dot.dot-in-progress { background: #c4956a; }
 .ticket-row-dot.dot-escalated { background: #a65d5d; }
-.ticket-row-dot.dot-open { background: var(--accent-primary); }
+.ticket-row-dot.dot-open { background: var(--brand-start); }
 .ticket-row-main {
     flex: 1;
     min-width: 0;
@@ -503,9 +506,9 @@
     font-weight: 500;
 }
 .admin-ticket-status-escalated { background: var(--error-bg); color: #c99a9a; }
-.admin-ticket-status-in-progress { background: var(--warning-bg); color: #d4a574; }
+.admin-ticket-status-in-progress { background: var(--warning-bg); color: #fbbf24; }
 .admin-ticket-status-closed { background: var(--success-bg); color: #8bb89a; }
-.admin-ticket-status-open { background: var(--info-bg); color: #d4a574; }
+.admin-ticket-status-open { background: var(--info-bg); color: #67e8f9; }
 
 /* —— Activity Logs page: filters layout and status badges —— */
 .activity-logs-filters {

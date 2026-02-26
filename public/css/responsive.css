@@ -179,7 +179,7 @@ html, body {
     .user-tickets-table tbody tr:hover,
     .user-tickets-table .user-ticket-row:hover {
         box-shadow: var(--shadow-md);
-        border-color: var(--accent-primary);
+        border-color: var(--brand-start);
     }
     .admin-tickets-table td,
     .user-tickets-table td {

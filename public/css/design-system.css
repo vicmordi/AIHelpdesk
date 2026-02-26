@@ -1,19 +1,26 @@
 /**
- * Dark Graphite + Muted Copper — Enterprise-grade, professional.
- * No neon, no AI cliché. Executive, mature, refined.
+ * Premium gradient brand — Indigo → Cyan. Enterprise SaaS.
+ * Dark graphite background preserved. No flat green.
  */
 
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
 :root {
+  /* Brand gradient — Indigo → Cyan (Option A) */
+  --brand-gradient: linear-gradient(135deg, #4f46e5, #06b6d4);
+  --brand-gradient-hover: linear-gradient(135deg, #6366f1, #22d3ee);
+  --brand-gradient-glow: rgba(79, 70, 229, 0.35);
+  --brand-start: #4f46e5;
+  --brand-end: #06b6d4;
+
+  /* Accent fallback (for non-gradient contexts) — use brand start */
+  --accent-primary: #4f46e5;
+  --accent-dark: #4338ca;
+
   /* Backgrounds — dark graphite */
   --bg-primary: #16181d;
   --bg-secondary: #1c1f26;
   --surface-card: #22252c;
-
-  /* Accent — muted copper */
-  --accent-primary: #b87333;
-  --accent-dark: #8c5a2b;
 
   /* Text */
   --text-primary: #f1f3f5;
@@ -34,18 +41,18 @@
   --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.35);
   --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.4);
 
-  /* Buttons — solid copper, no gradients, no glow */
-  --btn-primary-bg: var(--accent-primary);
-  --btn-primary-bg-hover: var(--accent-dark);
+  /* Buttons — use brand gradient */
+  --btn-primary-bg: var(--brand-gradient);
+  --btn-primary-bg-hover: var(--brand-gradient-hover);
 
   /* Semantic — muted, nothing bright */
-  --success-color: #5a8f6a;
-  --success-bg: rgba(90, 143, 106, 0.15);
-  --warning-color: #c4956a;
-  --warning-bg: rgba(196, 149, 106, 0.15);
-  --error-color: #a65d5d;
-  --error-bg: rgba(166, 93, 93, 0.15);
-  --info-bg: rgba(184, 115, 51, 0.12);
+  --success-color: #34d399;
+  --success-bg: rgba(52, 211, 153, 0.12);
+  --warning-color: #fbbf24;
+  --warning-bg: rgba(251, 191, 36, 0.12);
+  --error-color: #f87171;
+  --error-bg: rgba(248, 113, 113, 0.15);
+  --info-bg: rgba(6, 182, 212, 0.12);
 
   /* Radius */
   --radius: 14px;
@@ -54,20 +61,20 @@
 
   --transition: 0.2s ease;
 
-  /* Sidebar */
+  /* Sidebar — gradient accents */
   --sidebar-width: 260px;
   --sidebar-collapsed-width: 72px;
   --sidebar-bg: var(--bg-secondary);
   --sidebar-border: var(--border-subtle);
   --sidebar-text: var(--text-secondary);
   --sidebar-text-active: var(--text-primary);
-  --sidebar-active-bg: rgba(184, 115, 51, 0.1);
-  --sidebar-active-border: var(--accent-primary);
+  --sidebar-active-bg: rgba(79, 70, 229, 0.1);
+  --sidebar-active-border: var(--brand-start);
   --sidebar-hover-bg: rgba(255, 255, 255, 0.04);
   --sidebar-icon-size: 20px;
 
   /* Legacy aliases */
-  --primary-blue: var(--accent-primary);
+  --primary-blue: var(--brand-start);
   --primary-blue-dark: var(--accent-dark);
   --text-tertiary: var(--text-muted);
   --border-color: var(--border-subtle);

@@ -1,0 +1,13 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "knowledge_suggestions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "organization_id", "order": "ASCENDING" },
+        { "fieldPath": "cluster_signature", "order": "ASCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}

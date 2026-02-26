@@ -30,8 +30,8 @@ router = APIRouter()
 async def trigger_analysis(current_user: dict = Depends(require_super_admin)):
     """
     Run knowledge improvement analysis for the organization.
-    Analyzes resolved tickets, clusters by similarity, creates draft suggestions.
-    Never auto-publishes.
+    Decision-aware: does not create drafts for previously rejected or already-covered topics.
+    Returns new_drafts, previously_rejected, already_existing, already_approved.
     """
     organization_id = current_user.get("organization_id")
     if not organization_id:
@@ -42,8 +42,16 @@ async def trigger_analysis(current_user: dict = Depends(require_super_admin)):
         client = OpenAI(api_key=OPENAI_API_KEY)
         result = run_analysis_for_organization(organization_id, client)
         return {
-            "message": f"Analysis complete. Created {result['created']} new suggestion(s).",
-            "created": result["created"],
+            "message": (
+                f"Analysis complete: {len(result['new_drafts'])} new draft(s), "
+                f"{len(result['previously_rejected'])} previously rejected, "
+                f"{len(result['already_existing'])} already covered by KB, "
+                f"{len(result['already_approved'])} already approved."
+            ),
+            "new_drafts": result["new_drafts"],
+            "previously_rejected": result["previously_rejected"],
+            "already_existing": result["already_existing"],
+            "already_approved": result["already_approved"],
             "clusters_processed": result["clusters_processed"],
         }
     except Exception as e:
@@ -133,14 +141,16 @@ async def approve_suggestion_route(
 @router.post("/suggestions/{suggestion_id}/reject")
 async def reject_suggestion_route(
     suggestion_id: str,
+    body: dict,
     current_user: dict = Depends(require_super_admin),
 ):
-    """Reject suggestion."""
+    """Reject suggestion. Body may include decision_reason for decision-aware dedup."""
     organization_id = current_user.get("organization_id")
     if not organization_id:
         raise HTTPException(status_code=400, detail="Organization required")
     db = get_db()
-    result = reject_suggestion(db, suggestion_id, organization_id, current_user["uid"])
+    decision_reason = body.get("decision_reason") if isinstance(body, dict) else None
+    result = reject_suggestion(db, suggestion_id, organization_id, current_user["uid"], decision_reason=decision_reason)
     if not result.get("ok"):
         raise HTTPException(status_code=400, detail=result.get("error", "Reject failed"))
     return {"message": "Suggestion rejected"}

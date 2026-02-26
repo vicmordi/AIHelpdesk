@@ -82,7 +82,7 @@ function showPage(pageId) {
     else if (pageId === "messages") loadMessagesPage();
     else if (pageId === "knowledge-improvement") {
         if (currentUser?.role !== "super_admin") {
-            document.getElementById("ki-suggestions-list") && (document.getElementById("ki-suggestions-list").innerHTML = "<p class=\"empty-state\">Access denied. Super Admin only.</p>");
+            document.getElementById("ki-list-draft") && (document.getElementById("ki-list-draft").innerHTML = "<p class=\"empty-state\">Access denied. Super Admin only.</p>");
             return;
         }
         const subPart = (window.location.hash || "").split("/")[1];
@@ -366,77 +366,104 @@ async function loadKnowledgeImprovementPage() {
     const reviewView = document.getElementById("ki-review-view");
     if (listView) listView.style.display = "";
     if (reviewView) reviewView.style.display = "none";
-    const listEl = document.getElementById("ki-suggestions-list");
-    const filterEl = document.getElementById("ki-suggestions-filter");
     const runBtn = document.getElementById("ki-run-analysis-btn");
-    if (!listEl) return;
-    listEl.innerHTML = "<div class=\"loading\">Loading suggestions...</div>";
-    if (runBtn) {
-        runBtn.disabled = true;
-        runBtn.textContent = "Running…";
-    }
-    const status = filterEl?.value || "draft";
+    const listDraft = document.getElementById("ki-list-draft");
+    const listRejected = document.getElementById("ki-list-rejected");
+    const listCovered = document.getElementById("ki-list-covered");
+    const listApproved = document.getElementById("ki-list-approved");
+    if (!listDraft) return;
+    [listDraft, listRejected, listCovered, listApproved].forEach((el) => { if (el) el.innerHTML = "<div class=\"loading\">Loading...</div>"; });
+    if (runBtn) { runBtn.disabled = true; runBtn.textContent = "Running…"; }
     try {
-        const [suggestionsData, analyticsData] = await Promise.all([
-            apiRequest(`/admin/knowledge-improvement/suggestions?status=${status}`),
+        const [draftRes, rejectedRes, approvedRes, analyticsData] = await Promise.all([
+            apiRequest("/admin/knowledge-improvement/suggestions?status=draft"),
+            apiRequest("/admin/knowledge-improvement/suggestions?status=rejected"),
+            apiRequest("/admin/knowledge-improvement/suggestions?status=approved"),
             apiRequest("/admin/knowledge-improvement/analytics").catch(() => ({})),
         ]);
-        const suggestions = suggestionsData.suggestions || [];
-        // Update analytics header (Part 4)
+        const drafts = draftRes.suggestions || [];
+        const rejected = rejectedRes.suggestions || [];
+        const approved = approvedRes.suggestions || [];
+        const lastRunNew = analyticsData.last_run_new_drafts || [];
+        const lastRunRejected = analyticsData.last_run_previously_rejected || [];
+        const lastRunExisting = analyticsData.last_run_already_existing || [];
+        const lastRunApproved = analyticsData.last_run_already_approved || [];
+
         const lastRun = analyticsData.last_analysis_run;
         const recurringDetected = analyticsData.recurring_issues_detected ?? 0;
         const lastEl = document.getElementById("ki-last-analysis");
         const recurEl = document.getElementById("ki-recurring-detected");
         if (lastEl) lastEl.textContent = lastRun ? formatLocalTime(lastRun) : "—";
         if (recurEl) recurEl.textContent = String(recurringDetected);
-        if (suggestions.length === 0) {
-            listEl.innerHTML = `<p class="empty-state">No ${status === "all" ? "" : status} suggestions yet. Click "Run Analysis" to generate drafts from resolved tickets.</p>`;
-        } else {
-            listEl.innerHTML = suggestions.map((s) => {
-                const conf = s.confidence_score != null ? s.confidence_score : "—";
-                const statusBadge = (s.status || "draft");
-                const badgeClass = statusBadge === "draft" ? "badge-warning" : statusBadge === "approved" ? "badge-success" : "badge-neutral";
-                return `
-                <div class="kb-article-card" data-suggestion-id="${escapeHtml(s.id)}">
-                    <div class="kb-article-title">${escapeHtml(s.title || "Untitled")}</div>
-                    <div class="kb-article-meta" style="margin-top: 8px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center;">
-                        <span class="badge badge-info">${s.ticket_count || 0} tickets</span>
-                        ${conf !== "—" ? `<span class="badge badge-neutral">${conf}% confidence</span>` : ""}
-                        <span class="badge ${badgeClass}">${statusBadge}</span>
-                        ${s.category ? `<span style="font-size: 12px; color: var(--text-tertiary);">${escapeHtml(s.category)}</span>` : ""}
-                        ${s.created_at ? `<span style="font-size: 12px; color: var(--text-tertiary);">${formatLocalTime(s.created_at)}</span>` : ""}
-                    </div>
-                    <div class="kb-article-preview" style="margin-top: 8px; font-size: 13px; max-height: 60px; overflow: hidden; text-overflow: ellipsis;">
-                        ${escapeHtml((s.content || "").slice(0, 150))}${(s.content || "").length > 150 ? "…" : ""}
-                    </div>
-                    <div style="margin-top: 12px;">
-                        <button type="button" class="btn btn-small btn-primary view-suggestion-btn" data-id="${escapeHtml(s.id)}">${(s.status || "") === "draft" ? "View & Review" : "View"}</button>
-                    </div>
+
+        function renderCard(s, showViewBtn = true, label = "View & Review") {
+            const conf = s.confidence_score != null ? s.confidence_score : "—";
+            const statusBadge = (s.status || "");
+            const badgeClass = statusBadge === "draft" ? "badge-warning" : statusBadge === "approved" ? "badge-success" : "badge-neutral";
+            return `
+            <div class="kb-article-card" data-suggestion-id="${escapeHtml(s.id)}">
+                <div class="kb-article-title">${escapeHtml(s.title || "Untitled")}</div>
+                <div class="kb-article-meta" style="margin-top: 8px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center;">
+                    <span class="badge badge-info">${s.ticket_count || 0} tickets</span>
+                    ${conf !== "—" ? `<span class="badge badge-neutral">${conf}% confidence</span>` : ""}
+                    ${statusBadge ? `<span class="badge ${badgeClass}">${statusBadge}</span>` : ""}
+                    ${s.category ? `<span style="font-size: 12px; color: var(--text-tertiary);">${escapeHtml(s.category)}</span>` : ""}
+                    ${s.created_at ? `<span style="font-size: 12px; color: var(--text-tertiary);">${formatLocalTime(s.created_at)}</span>` : ""}
                 </div>
-            `;
-            }).join("");
+                <div class="kb-article-preview" style="margin-top: 8px; font-size: 13px; max-height: 60px; overflow: hidden; text-overflow: ellipsis;">
+                    ${escapeHtml((s.content || "").slice(0, 150))}${(s.content || "").length > 150 ? "…" : ""}
+                </div>
+                ${showViewBtn ? `<div style="margin-top: 12px;"><button type="button" class="btn btn-small btn-primary view-suggestion-btn" data-id="${escapeHtml(s.id)}">${label}</button></div>` : ""}
+            </div>`;
         }
-        if (filterEl) {
-            filterEl.onchange = () => loadKnowledgeImprovementPage();
+
+        if (listDraft) {
+            document.getElementById("ki-badge-draft").textContent = String(drafts.length);
+            listDraft.innerHTML = drafts.length === 0
+                ? "<p class=\"empty-state\">No draft suggestions. Run Analysis to generate from resolved tickets.</p>"
+                : drafts.map((s) => renderCard(s, true, "View & Review")).join("");
         }
+        if (listRejected) {
+            document.getElementById("ki-badge-rejected").textContent = String(rejected.length);
+            listRejected.innerHTML = rejected.length === 0
+                ? "<p class=\"empty-state\">No rejected suggestions.</p>"
+                : rejected.map((s) => renderCard(s, true, "View")).join("");
+        }
+        if (listCovered) {
+            document.getElementById("ki-badge-covered").textContent = String(lastRunExisting.length);
+            listCovered.innerHTML = lastRunExisting.length === 0
+                ? "<p class=\"empty-state\">None from last run. Run Analysis to see topics already covered by KB.</p>"
+                : lastRunExisting.map((item) => `
+                <div class="kb-article-card">
+                    <div class="kb-article-title">${escapeHtml(item.title || item.normalized_topic || "Topic")}</div>
+                    <div class="kb-article-meta" style="margin-top: 8px;"><span class="badge badge-info">${item.ticket_count || 0} tickets</span></div>
+                    <div style="margin-top: 8px;"><a href="#knowledge-base" data-kb-id="${escapeHtml(item.linked_kb_id || "")}">View existing article</a></div>
+                </div>`).join("");
+        }
+        if (listApproved) {
+            document.getElementById("ki-badge-approved").textContent = String(approved.length);
+            listApproved.innerHTML = approved.length === 0
+                ? "<p class=\"empty-state\">No approved suggestions yet.</p>"
+                : approved.map((s) => renderCard(s, true, "View")).join("");
+        }
+
         if (runBtn) {
             runBtn.disabled = false;
             runBtn.textContent = "Run Analysis";
             runBtn.onclick = runKnowledgeAnalysis;
         }
-        listEl.querySelectorAll(".view-suggestion-btn").forEach((btn) => {
-            btn.addEventListener("click", () => {
-                window.location.hash = `#knowledge-improvement/review/${btn.dataset.id}`;
-                showPage("knowledge-improvement");
-            });
+        listDraft.querySelectorAll(".view-suggestion-btn").forEach((btn) => {
+            btn.addEventListener("click", () => { window.location.hash = `#knowledge-improvement/review/${btn.dataset.id}`; showPage("knowledge-improvement"); });
+        });
+        listRejected.querySelectorAll(".view-suggestion-btn").forEach((btn) => {
+            btn.addEventListener("click", () => { window.location.hash = `#knowledge-improvement/review/${btn.dataset.id}`; showPage("knowledge-improvement"); });
+        });
+        listApproved.querySelectorAll(".view-suggestion-btn").forEach((btn) => {
+            btn.addEventListener("click", () => { window.location.hash = `#knowledge-improvement/review/${btn.dataset.id}`; showPage("knowledge-improvement"); });
         });
     } catch (e) {
-        listEl.innerHTML = `<p class="error-message">${e.message || "Failed to load suggestions"}</p>`;
-        if (runBtn) {
-            runBtn.disabled = false;
-            runBtn.textContent = "Run Analysis";
-            runBtn.onclick = runKnowledgeAnalysis;
-        }
+        if (listDraft) listDraft.innerHTML = `<p class="error-message">${e.message || "Failed to load"}</p>`;
+        if (runBtn) { runBtn.disabled = false; runBtn.textContent = "Run Analysis"; runBtn.onclick = runKnowledgeAnalysis; }
     }
 }
 
@@ -464,6 +491,29 @@ async function showSuggestionReviewPage(suggestionId) {
         document.getElementById("ki-review-category").textContent = s.category || "—";
         document.getElementById("ki-review-ticket-count").textContent = s.ticket_count || s.related_tickets?.length || 0;
         document.getElementById("ki-review-confidence").textContent = s.confidence_score != null ? s.confidence_score : "—";
+        const decisionWrap = document.getElementById("ki-review-decision-reason-wrap");
+        const decisionEl = document.getElementById("ki-review-decision-reason");
+        const linkedWrap = document.getElementById("ki-review-linked-kb-wrap");
+        const linkedLink = document.getElementById("ki-review-linked-kb-link");
+        if (decisionWrap && decisionEl) {
+            if ((s.status || "") === "rejected" && s.decision_reason) {
+                decisionWrap.style.display = "";
+                decisionEl.textContent = s.decision_reason;
+            } else {
+                decisionWrap.style.display = "none";
+            }
+        }
+        if (linkedWrap && linkedLink) {
+            const kbId = s.linked_kb_id || s.published_article_id;
+            if ((s.status || "") === "approved" && kbId) {
+                linkedWrap.style.display = "";
+                linkedLink.href = "#knowledge-base";
+                linkedLink.textContent = "View published article";
+                linkedLink.onclick = (e) => { e.preventDefault(); window.location.hash = "#knowledge-base"; showPage("knowledge-base"); };
+            } else {
+                linkedWrap.style.display = "none";
+            }
+        }
         document.getElementById("ki-review-content-body").textContent = s.content || "";
         document.getElementById("ki-edit-title").value = s.title || "";
         document.getElementById("ki-edit-category").value = s.category || "";
@@ -569,8 +619,10 @@ async function approveKnowledgeSuggestion(id) {
 
 async function rejectKnowledgeSuggestion(id) {
     if (!confirm("Reject this suggestion? It will not be published.")) return;
+    const reason = prompt("Optional: Reason for rejection (stored for decision-aware dedup):");
+    const body = reason && reason.trim() ? { decision_reason: reason.trim() } : {};
     try {
-        await apiRequest(`/admin/knowledge-improvement/suggestions/${id}/reject`, { method: "POST" });
+        await apiRequest(`/admin/knowledge-improvement/suggestions/${id}/reject`, { method: "POST", body: JSON.stringify(body) });
         showSuccess("Suggestion rejected.");
         window.location.hash = "#knowledge-improvement";
         loadKnowledgeImprovementPage();

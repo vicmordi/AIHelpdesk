@@ -63,8 +63,8 @@ def run_scheduled_analysis():
         try:
             result = run_analysis_for_organization(org_id, client)
             logger.info(
-                "Scheduled KI analysis org=%s: created=%d, clusters=%d",
-                org_id, result.get("created", 0), result.get("clusters_processed", 0),
+                "Scheduled KI analysis org=%s: new_drafts=%d, clusters=%d",
+                org_id, len(result.get("new_drafts", [])), result.get("clusters_processed", 0),
             )
         except Exception as e:
             logger.exception("Scheduled KI analysis failed for org %s: %s", org_id, e)

@@ -96,20 +96,29 @@
                     <div id="ki-analytics-header" class="card" style="margin-bottom: 16px; padding: 12px 18px; font-size: 13px; color: var(--text-tertiary);">
                         Last analysis run: <span id="ki-last-analysis">—</span> · Total recurring issues detected: <span id="ki-recurring-detected">0</span>
                     </div>
-                    <div class="card">
-                        <div class="card-header">
-                            <h2>Suggested Knowledge Articles</h2>
-                            <select id="ki-suggestions-filter" class="form-control-inline">
-                                <option value="draft">Draft</option>
-                                <option value="approved">Approved</option>
-                                <option value="rejected">Rejected</option>
-                                <option value="all">All</option>
-                            </select>
-                        </div>
+                    <div class="card" style="margin-bottom: 16px;">
+                        <div class="card-header"><h2>Draft Suggestions</h2><span class="badge badge-warning" id="ki-badge-draft">0</span></div>
                         <div class="card-body">
-                            <div id="ki-suggestions-list" class="articles-list kb-article-cards">
-                                <div class="loading">Loading suggestions...</div>
-                            </div>
+                            <div id="ki-list-draft" class="articles-list kb-article-cards"></div>
+                        </div>
+                    </div>
+                    <div class="card" style="margin-bottom: 16px;">
+                        <div class="card-header"><h2>Previously Rejected</h2><span class="badge badge-neutral" id="ki-badge-rejected">0</span></div>
+                        <div class="card-body">
+                            <div id="ki-list-rejected" class="articles-list kb-article-cards"></div>
+                        </div>
+                    </div>
+                    <div class="card" style="margin-bottom: 16px;">
+                        <div class="card-header"><h2>Already Covered</h2><span class="badge badge-info" id="ki-badge-covered">0</span></div>
+                        <p class="card-body" style="font-size: 13px; color: var(--text-tertiary); margin-top: 0;">Topics that matched existing knowledge base articles (from last run).</p>
+                        <div class="card-body">
+                            <div id="ki-list-covered" class="articles-list kb-article-cards"></div>
+                        </div>
+                    </div>
+                    <div class="card" style="margin-bottom: 16px;">
+                        <div class="card-header"><h2>Approved</h2><span class="badge badge-success" id="ki-badge-approved">0</span></div>
+                        <div class="card-body">
+                            <div id="ki-list-approved" class="articles-list kb-article-cards"></div>
                         </div>
                     </div>
                 </div>
@@ -132,6 +141,14 @@
                                 <div class="form-group">
                                     <label>Related tickets</label>
                                     <span id="ki-review-ticket-count">0</span> tickets · Confidence: <span id="ki-review-confidence">—</span>%
+                                </div>
+                                <div id="ki-review-decision-reason-wrap" class="form-group" style="display: none;">
+                                    <label>Decision reason (rejected)</label>
+                                    <div id="ki-review-decision-reason" class="article-view-text" style="padding: 8px; background: var(--bg-secondary); border-radius: var(--radius);"></div>
+                                </div>
+                                <div id="ki-review-linked-kb-wrap" class="form-group" style="display: none;">
+                                    <label>Covered by article</label>
+                                    <a id="ki-review-linked-kb-link" href="#" target="_blank" rel="noopener" class="article-view-text"></a>
                                 </div>
                                 <div id="ki-review-view-mode">
                                     <div class="form-group">

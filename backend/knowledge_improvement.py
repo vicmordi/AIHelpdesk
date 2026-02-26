@@ -1,6 +1,7 @@
 """
 Automatic Knowledge Improvement System.
 Analyzes resolved tickets, clusters by semantic similarity, and generates KB draft suggestions.
+Decision-aware: does not regenerate rejected or already-covered topics.
 Multi-tenant safe. Never auto-publishes. Uses only ticket content and resolution data.
 """
 
@@ -8,6 +9,7 @@ import hashlib
 import logging
 import os
 import math
+import re
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional, Tuple
 
@@ -22,11 +24,63 @@ logger = logging.getLogger(__name__)
 SIMILARITY_THRESHOLD = float(os.getenv("KB_SIMILARITY_THRESHOLD", "0.85"))
 CLUSTER_MIN_SIZE = int(os.getenv("KB_CLUSTER_MIN_SIZE", "3"))
 RESOLVED_DAYS_WINDOW = int(os.getenv("KB_RESOLVED_DAYS", "30"))
+KB_EXISTING_SIMILARITY_THRESHOLD = float(os.getenv("KB_EXISTING_SIMILARITY_THRESHOLD", "0.88"))
 EMBEDDING_MODEL = "text-embedding-3-small"
+
+# Stopwords for topic normalization (lowercase)
+_STOPWORDS = frozenset({
+    "a", "an", "the", "and", "or", "but", "in", "on", "at", "to", "for", "of", "with",
+    "by", "from", "as", "is", "was", "are", "were", "been", "be", "have", "has", "had",
+    "do", "does", "did", "will", "would", "could", "should", "may", "might", "must",
+    "can", "this", "that", "these", "those", "it", "its", "i", "me", "my", "we", "our",
+    "you", "your", "he", "she", "they", "them", "not", "no", "yes", "so", "if", "then",
+})
 
 
 def get_db():
     return firestore.client()
+
+
+def _normalize_topic(raw: str) -> str:
+    """
+    Normalize a topic string for deterministic cluster_signature.
+    Lowercase, remove punctuation, remove stopwords, basic stem (strip common suffixes).
+    """
+    if not raw or not isinstance(raw, str):
+        return ""
+    s = raw.lower().strip()
+    s = re.sub(r"[^\w\s]", " ", s)
+    words = s.split()
+    out = []
+    for w in words:
+        if not w or w in _STOPWORDS:
+            continue
+        # Basic stem: strip trailing s, ed, ing
+        if len(w) > 3 and w.endswith("ing"):
+            w = w[:-3]
+        elif len(w) > 2 and w.endswith("ed"):
+            w = w[:-2]
+        elif len(w) > 1 and w.endswith("s") and not w.endswith("ss"):
+            w = w[:-1]
+        out.append(w)
+    return " ".join(sorted(set(out)))  # sort for determinism
+
+
+def _build_cluster_topic(cluster: List[Dict[str, Any]]) -> str:
+    """Build a raw topic string from cluster ticket summaries (for normalization)."""
+    parts = []
+    for t in cluster[:5]:
+        s = (t.get("summary") or t.get("message") or "")[:300]
+        if s:
+            parts.append(s)
+    return " ".join(parts) if parts else "unknown"
+
+
+def _cluster_signature(normalized_topic: str) -> str:
+    """Deterministic fingerprint for a cluster topic. SHA256 of normalized_topic."""
+    if not normalized_topic:
+        return hashlib.sha256(b"unknown").hexdigest()[:32]
+    return hashlib.sha256(normalized_topic.encode("utf-8")).hexdigest()[:32]
 
 
 def _cosine_similarity(a: List[float], b: List[float]) -> float:
@@ -228,36 +282,161 @@ def check_cluster_already_suggested(db, organization_id: str, cluster_id: str) -
     return False
 
 
+def _check_suggestion_by_cluster_signature(
+    db, organization_id: str, cluster_signature: str
+) -> Optional[Tuple[str, Optional[str], Optional[str]]]:
+    """
+    Check if we already have a suggestion with this cluster_signature.
+    Returns (status, suggestion_id, decision_reason) if found, else None.
+    status is one of: rejected, approved, draft.
+    Requires Firestore composite index: organization_id (ASC), cluster_signature (ASC).
+    """
+    ref = (
+        db.collection("knowledge_suggestions")
+        .where("organization_id", "==", organization_id)
+        .where("cluster_signature", "==", cluster_signature)
+    )
+    for doc in ref.limit(1).stream():
+        d = doc.to_dict()
+        status = d.get("status")
+        if status == "rejected":
+            return ("rejected", doc.id, d.get("decision_reason"))
+        if status == "approved":
+            return ("approved", doc.id, None)
+        if status == "draft":
+            return ("draft", doc.id, None)
+    return None
+
+
+def _check_kb_similarity(
+    db,
+    organization_id: str,
+    cluster_embedding: List[float],
+    openai_client: OpenAI,
+    threshold: float = KB_EXISTING_SIMILARITY_THRESHOLD,
+) -> Optional[Dict[str, Any]]:
+    """
+    Check if cluster topic is already covered by an existing KB article (embedding similarity).
+    Returns { "id": article_id, "title": title } if match >= threshold, else None.
+    Multi-tenant: only org's KB articles.
+    """
+    kb_ref = db.collection("knowledge_base").where("organization_id", "==", organization_id)
+    best_score = 0.0
+    best_article = None
+    count = 0
+    for doc in kb_ref.stream():
+        count += 1
+        if count > 100:  # Cap to avoid too many embeddings
+            break
+        d = doc.to_dict()
+        title = d.get("title") or ""
+        content = (d.get("content") or "")[:2000]
+        text = f"{title}\n{content}".strip()
+        if not text:
+            continue
+        emb = generate_embedding(text, openai_client)
+        if not emb:
+            continue
+        score = _cosine_similarity(cluster_embedding, emb)
+        if score >= threshold and score > best_score:
+            best_score = score
+            best_article = {"id": doc.id, "title": title or doc.id}
+    return best_article
+
+
 def run_analysis_for_organization(
     organization_id: str,
     openai_client: Optional[OpenAI] = None,
 ) -> Dict[str, Any]:
     """
     Main entry: analyze resolved tickets, cluster, generate drafts.
+    Decision-aware: does not create drafts for previously rejected or already-covered topics.
     Multi-tenant safe. Never auto-publishes.
-    Returns { created: int, clusters_processed: int, suggestions: [...] }.
+    Returns:
+      new_drafts: list of newly created suggestion summaries
+      previously_rejected: list of { cluster_signature, suggestion_id, decision_reason?, normalized_topic }
+      already_existing: list of { cluster_signature, linked_kb_id, title, normalized_topic }
+      already_approved: list of { cluster_signature, suggestion_id, linked_kb_id }
+      clusters_processed: int
     """
     db = get_db()
     client = openai_client or OpenAI(api_key=OPENAI_API_KEY)
     tickets = get_resolved_tickets(db, organization_id, RESOLVED_DAYS_WINDOW)
     logger.info("Knowledge improvement: org=%s, resolved tickets=%d", organization_id, len(tickets))
     clusters_with_sim = cluster_tickets_by_similarity(tickets, SIMILARITY_THRESHOLD, CLUSTER_MIN_SIZE, client)
-    created = 0
-    suggestions = []
+
+    new_drafts: List[Dict[str, Any]] = []
+    previously_rejected: List[Dict[str, Any]] = []
+    already_existing: List[Dict[str, Any]] = []
+    already_approved: List[Dict[str, Any]] = []
+
     for cluster, avg_similarity in clusters_with_sim:
         ticket_ids = sorted([t.get("id") for t in cluster if t.get("id")])
-        # cluster_id = hash of sorted ticket IDs — prevents duplicate suggestions for same cluster
         cluster_id = hashlib.sha256("|".join(ticket_ids).encode()).hexdigest()[:24]
+
+        # Build topic and deterministic cluster_signature (for decision-aware dedup)
+        raw_topic = _build_cluster_topic(cluster)
+        normalized_topic = _normalize_topic(raw_topic)
+        sig = _cluster_signature(normalized_topic)
+
+        # 1) Check knowledge_suggestions by cluster_signature
+        existing = _check_suggestion_by_cluster_signature(db, organization_id, sig)
+        if existing:
+            status, suggestion_id, decision_reason = existing
+            if status == "rejected":
+                previously_rejected.append({
+                    "cluster_signature": sig,
+                    "suggestion_id": suggestion_id,
+                    "decision_reason": decision_reason,
+                    "normalized_topic": normalized_topic[:200],
+                    "ticket_count": len(ticket_ids),
+                })
+                continue
+            if status == "approved":
+                doc_ref = db.collection("knowledge_suggestions").document(suggestion_id)
+                doc_snap = doc_ref.get()
+                linked_kb = None
+                if doc_snap.exists:
+                    d = doc_snap.to_dict()
+                    linked_kb = d.get("published_article_id") or d.get("linked_kb_id")
+                already_approved.append({
+                    "cluster_signature": sig,
+                    "suggestion_id": suggestion_id,
+                    "linked_kb_id": linked_kb,
+                    "normalized_topic": normalized_topic[:200],
+                    "ticket_count": len(ticket_ids),
+                })
+                continue
+            if status == "draft":
+                continue  # Already have a draft for this topic
+
+        # 2) Check knowledge_base by embedding similarity
+        cluster_text = raw_topic[:4000]
+        cluster_emb = generate_embedding(cluster_text, client)
+        if cluster_emb:
+            kb_match = _check_kb_similarity(db, organization_id, cluster_emb, client)
+            if kb_match:
+                already_existing.append({
+                    "cluster_signature": sig,
+                    "linked_kb_id": kb_match["id"],
+                    "title": kb_match.get("title", ""),
+                    "normalized_topic": normalized_topic[:200],
+                    "ticket_count": len(ticket_ids),
+                })
+                continue
+
+        # 3) No reject, no approve, no KB match — create new draft
         if check_cluster_already_suggested(db, organization_id, cluster_id):
             continue
         article = _generate_kb_article_from_cluster(cluster, client)
-        # confidence_score: 0–100 from avg similarity (0.85→85, 1.0→100)
         confidence_score = min(100, max(0, int(avg_similarity * 100)))
         doc_data = {
             "organization_id": organization_id,
             "cluster_id": cluster_id,
+            "cluster_signature": sig,
+            "normalized_topic": normalized_topic[:500],
             "ticket_ids": ticket_ids,
-            "related_ticket_ids": ticket_ids,  # alias for frontend
+            "related_ticket_ids": ticket_ids,
             "ticket_count": len(ticket_ids),
             "title": article["title"],
             "content": article["content"],
@@ -267,25 +446,41 @@ def run_analysis_for_organization(
             "cluster_summary": article.get("cluster_summary") or "Recurring issue from resolved tickets",
             "confidence_score": confidence_score,
             "status": "draft",
+            "decision_reason": None,
+            "linked_kb_id": None,
             "created_at": datetime.utcnow().isoformat(),
             "reviewed_at": None,
             "reviewed_by": None,
         }
         db.collection("knowledge_suggestions").add(doc_data)
-        created += 1
-        suggestions.append({**doc_data, "ticket_ids": ticket_ids})
+        new_drafts.append({
+            "title": article["title"],
+            "cluster_signature": sig,
+            "ticket_count": len(ticket_ids),
+            "confidence_score": confidence_score,
+        })
         logger.info("Created KB suggestion: title=%s, cluster_size=%d, confidence=%d", article["title"], len(cluster), confidence_score)
-    # Store last_analysis_run and recurring_issues_detected for analytics header
-    _update_analysis_metadata(db, organization_id, len(clusters_with_sim))
+
+    _update_analysis_metadata(db, organization_id, len(clusters_with_sim), new_drafts, previously_rejected, already_existing, already_approved)
     return {
-        "created": created,
+        "new_drafts": new_drafts,
+        "previously_rejected": previously_rejected,
+        "already_existing": already_existing,
+        "already_approved": already_approved,
         "clusters_processed": len(clusters_with_sim),
-        "suggestions": suggestions,
     }
 
 
-def _update_analysis_metadata(db, organization_id: str, recurring_issues_detected: int) -> None:
-    """Store last analysis run timestamp, recurring issues count, and resolved count per org."""
+def _update_analysis_metadata(
+    db,
+    organization_id: str,
+    recurring_issues_detected: int,
+    new_drafts: Optional[List[Dict[str, Any]]] = None,
+    previously_rejected: Optional[List[Dict[str, Any]]] = None,
+    already_existing: Optional[List[Dict[str, Any]]] = None,
+    already_approved: Optional[List[Dict[str, Any]]] = None,
+) -> None:
+    """Store last analysis run timestamp, counts, and last run result for frontend."""
     resolved_ref = (
         db.collection("tickets")
         .where("organization_id", "==", organization_id)
@@ -293,13 +488,22 @@ def _update_analysis_metadata(db, organization_id: str, recurring_issues_detecte
     )
     resolved_count = sum(1 for _ in resolved_ref.stream())
     ref = db.collection("knowledge_analysis_state").document(organization_id)
-    ref.set({
+    payload = {
         "organization_id": organization_id,
         "last_analysis_run": datetime.utcnow().isoformat(),
         "recurring_issues_detected": recurring_issues_detected,
         "resolved_count_at_last_run": resolved_count,
         "updated_at": datetime.utcnow().isoformat(),
-    }, merge=True)
+    }
+    if new_drafts is not None:
+        payload["last_run_new_drafts"] = new_drafts
+    if previously_rejected is not None:
+        payload["last_run_previously_rejected"] = previously_rejected
+    if already_existing is not None:
+        payload["last_run_already_existing"] = already_existing
+    if already_approved is not None:
+        payload["last_run_already_approved"] = already_approved
+    ref.set(payload, merge=True)
 
 
 def get_suggestion_by_id(db, suggestion_id: str, organization_id: str) -> Optional[Dict[str, Any]]:
@@ -422,12 +626,15 @@ def approve_suggestion(db, suggestion_id: str, organization_id: str, reviewer_ui
         "reviewed_at": datetime.utcnow().isoformat(),
         "reviewed_by": reviewer_uid,
         "published_article_id": kb_ref.id,
+        "linked_kb_id": kb_ref.id,  # alias for frontend / already-covered linking
     })
     return {"ok": True, "article_id": kb_ref.id}
 
 
-def reject_suggestion(db, suggestion_id: str, organization_id: str, reviewer_uid: str) -> Dict[str, Any]:
-    """Reject suggestion."""
+def reject_suggestion(
+    db, suggestion_id: str, organization_id: str, reviewer_uid: str, decision_reason: Optional[str] = None
+) -> Dict[str, Any]:
+    """Reject suggestion. Optionally store decision_reason for decision-aware dedup."""
     ref = db.collection("knowledge_suggestions").document(suggestion_id)
     doc = ref.get()
     if not doc.exists:
@@ -437,11 +644,14 @@ def reject_suggestion(db, suggestion_id: str, organization_id: str, reviewer_uid
         return {"ok": False, "error": "Not your organization"}
     if d.get("status") != "draft":
         return {"ok": False, "error": f"Suggestion already {d.get('status')}"}
-    ref.update({
+    updates = {
         "status": "rejected",
         "reviewed_at": datetime.utcnow().isoformat(),
         "reviewed_by": reviewer_uid,
-    })
+    }
+    if decision_reason is not None:
+        updates["decision_reason"] = decision_reason[:1000]
+    ref.update(updates)
     return {"ok": True}
 
 
@@ -474,13 +684,25 @@ def get_analytics(db, organization_id: str) -> Dict[str, Any]:
     meta_doc = meta_ref.get()
     last_analysis_run = None
     recurring_issues_detected = 0
+    last_run_new_drafts = []
+    last_run_previously_rejected = []
+    last_run_already_existing = []
+    last_run_already_approved = []
     if meta_doc.exists:
         meta = meta_doc.to_dict()
         last_analysis_run = meta.get("last_analysis_run")
         recurring_issues_detected = meta.get("recurring_issues_detected") or 0
+        last_run_new_drafts = meta.get("last_run_new_drafts") or []
+        last_run_previously_rejected = meta.get("last_run_previously_rejected") or []
+        last_run_already_existing = meta.get("last_run_already_existing") or []
+        last_run_already_approved = meta.get("last_run_already_approved") or []
     return {
         "recurring_issues_this_month": resolved_count,
         "suggested_articles_pending": draft_count,
         "last_analysis_run": last_analysis_run,
         "recurring_issues_detected": recurring_issues_detected,
+        "last_run_new_drafts": last_run_new_drafts,
+        "last_run_previously_rejected": last_run_previously_rejected,
+        "last_run_already_existing": last_run_already_existing,
+        "last_run_already_approved": last_run_already_approved,
     }

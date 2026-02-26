@@ -1,3 +1,5 @@
+import { LOGO_ICON_SVG } from "./nav-logo.js";
+
 /**
  * Reusable admin sidebar component. Renders nav and handles active state from hash.
  * @param {HTMLElement} container - Element to render sidebar into
@@ -42,10 +44,10 @@ export function renderSidebar(container, options = {}) {
     const roleLabel = role === "super_admin" ? "Super Admin" : role === "support_admin" ? "Support Admin" : "";
 
     container.innerHTML = `
-        <div class="sidebar-brand">
-            <div class="sidebar-brand-icon">💬</div>
+        <a href="admin.html#dashboard" class="sidebar-brand" aria-label="AI Helpdesk home">
+            <span class="sidebar-brand-icon">${LOGO_ICON_SVG}</span>
             <span class="sidebar-brand-text">AI Helpdesk</span>
-        </div>
+        </a>
         <nav class="sidebar-nav">
             ${links.filter((l) => !l.isLogout).map((l) => `
                 <a class="sidebar-link" href="${l.action ? "#" : l.hash}" data-page="${l.id}" data-action="${l.action || ""}" data-nav>

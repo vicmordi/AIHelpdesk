@@ -1,7 +1,31 @@
 /**
  * Register — org-only. Creates organization + super_admin. No employee self sign-up.
  */
-import { getApiBaseUrl, setToken } from "./api.js";
+import { getApiBaseUrl, setToken, getToken } from "./api.js";
+
+/** If already authenticated, redirect to dashboard */
+async function checkAuthAndRedirect() {
+  const token = getToken();
+  if (!token) return;
+  try {
+    const res = await fetch(getApiBaseUrl() + "/auth/me", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) return;
+    const user = await res.json();
+    if (user.must_change_password) {
+      window.location.href = "change-password.html";
+      return;
+    }
+    const role = user.role || "";
+    if (["admin", "super_admin", "support_admin"].includes(role)) {
+      window.location.href = "admin.html";
+    } else {
+      window.location.href = "submit-ticket.html";
+    }
+  } catch (_) {}
+}
+checkAuthAndRedirect();
 
 function getErrorMessage(detail) {
   const map = {

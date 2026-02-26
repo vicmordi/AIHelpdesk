@@ -6,7 +6,7 @@ import { getApiBaseUrl, getToken, setToken } from "./api.js";
 (async function init() {
     const token = getToken();
     if (!token) {
-        window.location.href = "login.html";
+        window.location.href = "index.html";
         return;
     }
     try {
@@ -14,7 +14,7 @@ import { getApiBaseUrl, getToken, setToken } from "./api.js";
             headers: { Authorization: `Bearer ${token}` },
         });
         if (!res.ok) {
-            window.location.href = "login.html";
+            window.location.href = "index.html";
             return;
         }
         const user = await res.json();
@@ -28,7 +28,7 @@ import { getApiBaseUrl, getToken, setToken } from "./api.js";
             return;
         }
     } catch (_) {
-        window.location.href = "login.html";
+        window.location.href = "index.html";
     }
 })();
 

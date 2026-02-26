@@ -244,10 +244,8 @@ html, body {
     }
     .ticket-detail-nav .nav-brand {
         font-size: 15px;
-        padding-left: 0;
     }
-    .ticket-detail-nav .nav-brand::before,
-    .ticket-detail-nav .nav-brand::after { display: none; }
+    .ticket-detail-nav .nav-brand-icon { display: none; }
     .ticket-detail-main {
         padding: 16px;
         max-width: 100%;

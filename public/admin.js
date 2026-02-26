@@ -796,14 +796,13 @@ async function rejectKnowledgeSuggestion(id) {
 // Check authentication and init sidebar + routing
 (async function initAuth() {
     if (!isAuthenticated()) {
-        window.location.href = "login.html";
+        window.location.href = "index.html";
         return;
     }
     try {
         const userData = await apiRequest("/auth/me");
         const adminRoles = ["admin", "super_admin", "support_admin"];
         if (!adminRoles.includes(userData.role || "")) {
-            alert("Access denied. Administrator privileges required.");
             window.location.href = "submit-ticket.html";
             return;
         }
@@ -823,7 +822,7 @@ async function rejectKnowledgeSuggestion(id) {
         if (sidebarEl) {
             renderSidebar(sidebarEl, {
                 currentUser: userData,
-                onLogout: () => { clearToken(); window.location.href = "login.html"; },
+                onLogout: () => { clearToken(); window.location.href = "index.html"; },
                 onOpenMessages: () => openMessagesModal(),
             });
         }
@@ -892,7 +891,7 @@ async function rejectKnowledgeSuggestion(id) {
         console.error("Error loading user data:", err);
         showError("Failed to load user data");
         clearToken();
-        window.location.href = "login.html";
+        window.location.href = "index.html";
     }
 })();
 
@@ -1036,7 +1035,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (logoutBtn) {
         logoutBtn.addEventListener("click", () => {
             clearToken();
-            window.location.href = "login.html";
+            window.location.href = "index.html";
         });
     }
     

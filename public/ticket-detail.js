@@ -278,7 +278,7 @@ function setupChatForm(ticket) {
 
 (async function init() {
     if (!isAuthenticated()) {
-        window.location.href = "login.html";
+        window.location.href = "index.html";
         return;
     }
     try {
@@ -292,7 +292,7 @@ function setupChatForm(ticket) {
         if (emailEl) emailEl.textContent = currentUser.email || "";
         document.getElementById("logout-btn")?.addEventListener("click", () => {
             clearToken();
-            window.location.href = "login.html";
+            window.location.href = "index.html";
         });
         await loadTicket();
     } catch (err) {

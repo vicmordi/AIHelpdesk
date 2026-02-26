@@ -2,6 +2,7 @@
  * Submit Ticket Page JavaScript — backend API only, no Firebase client SDK.
  */
 import { apiRequest, clearToken, isAuthenticated, formatLocalTime } from "./api.js";
+import { getLogoHref, LOGO_ICON_SVG } from "./js/nav-logo.js";
 
 let currentUser = null;
 
@@ -20,7 +21,7 @@ function getSenderLabel(msg, ticket, isAdminView) {
 // Check authentication (token-based)
 (async function initAuth() {
     if (!isAuthenticated()) {
-        window.location.href = "login.html";
+        window.location.href = "index.html";
         return;
     }
     try {
@@ -35,6 +36,13 @@ function getSenderLabel(msg, ticket, isAdminView) {
             window.location.href = "change-password.html";
             return;
         }
+        // Logo: employee dashboard (submit-ticket). Admins are redirected above.
+        const logoLink = document.getElementById("nav-brand-logo");
+        if (logoLink) {
+            logoLink.href = "submit-ticket.html";
+            const iconEl = logoLink.querySelector(".nav-brand-icon");
+            if (iconEl) iconEl.innerHTML = LOGO_ICON_SVG;
+        }
         document.getElementById("user-email").textContent = userData.email || "";
         const avatar = document.getElementById("user-avatar");
         if (avatar) avatar.textContent = (userData.email || "U").charAt(0).toUpperCase();
@@ -47,7 +55,7 @@ function getSenderLabel(msg, ticket, isAdminView) {
         console.error("Error loading user data:", err);
         showError("Failed to load user data");
         clearToken();
-        window.location.href = "login.html";
+        window.location.href = "index.html";
     }
 })();
 
@@ -184,7 +192,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (logoutBtn) {
         logoutBtn.addEventListener("click", () => {
             clearToken();
-            window.location.href = "login.html";
+            window.location.href = "index.html";
         });
     }
     

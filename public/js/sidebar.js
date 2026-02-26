@@ -16,6 +16,7 @@ export function renderSidebar(container, options = {}) {
     ];
     if (isSuperAdmin) {
         links.push({ id: "knowledge-improvement", hash: "#knowledge-improvement", label: "Knowledge Improvement", icon: "🧠" });
+        links.push({ id: "activity-logs", hash: "#activity-logs", label: "Activity Logs", icon: "🛡️" });
         links.push({ id: "users", hash: "#users", label: "User Management", icon: "👥" });
         links.push({ id: "settings", hash: "#settings", label: "Settings", icon: "⚙️" });
     }

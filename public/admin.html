@@ -338,6 +338,57 @@
                 </div>
             </section>
 
+            <!-- Activity Logs page (super_admin only) - Enterprise audit log -->
+            <section class="admin-page" data-page="activity-logs" id="page-activity-logs">
+                <div class="admin-page-header">
+                    <h1>Activity Logs</h1>
+                    <p class="subtitle">Audit trail: logins, tickets, navigation, and security events</p>
+                </div>
+                <div class="card activity-logs-filters-card">
+                    <div class="card-body">
+                        <div class="activity-logs-filters">
+                            <label>From <input type="date" id="al-date-from" class="input"></label>
+                            <label>To <input type="date" id="al-date-to" class="input"></label>
+                            <label>Action
+                                <select id="al-action-type" class="input">
+                                    <option value="">All</option>
+                                    <option value="login_success">Login success</option>
+                                    <option value="login_failed">Login failed</option>
+                                    <option value="brute_force_attempt">Brute force</option>
+                                    <option value="ticket_submitted">Ticket submitted</option>
+                                    <option value="ticket_escalated">Ticket escalated</option>
+                                    <option value="ticket_resolved">Ticket resolved</option>
+                                    <option value="page_click">Page click</option>
+                                    <option value="button_click">Button click</option>
+                                    <option value="navigation">Navigation</option>
+                                    <option value="dashboard_view">Dashboard view</option>
+                                    <option value="knowledge_base_view">KB view</option>
+                                </select>
+                            </label>
+                            <label>Role
+                                <select id="al-role" class="input">
+                                    <option value="">All</option>
+                                    <option value="super_admin">Super Admin</option>
+                                    <option value="support_admin">Support Admin</option>
+                                    <option value="employee">Employee</option>
+                                </select>
+                            </label>
+                            <label>Search <input type="text" id="al-search" class="input" placeholder="User name"></label>
+                            <label>IP <input type="text" id="al-ip" class="input" placeholder="IP address"></label>
+                            <button type="button" id="al-apply" class="btn btn-primary">Apply</button>
+                            <button type="button" id="al-export-csv" class="btn btn-secondary">Export CSV</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card-body">
+                        <div id="activity-logs-table-wrap">
+                            <p class="empty-state">Loading…</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
             <!-- Settings page (super_admin only) -->
             <section class="admin-page" data-page="settings" id="page-settings">
                 <div class="admin-page-header">

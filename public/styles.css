@@ -327,15 +327,15 @@ body::after {
     color: var(--text-muted);
 }
 
-/* Buttons — solid copper primary, outline secondary. No gradients, no glow. */
+/* Buttons — gradient inner fill, subtle border, hover lift + glow. Dark background unchanged. */
 .btn {
     padding: 10px 24px;
     border: none;
-    border-radius: var(--radius-sm);
+    border-radius: 10px;
     font-size: 14px;
     font-weight: 600;
     cursor: pointer;
-    transition: transform var(--transition), box-shadow var(--transition), opacity var(--transition);
+    transition: transform 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease;
     text-decoration: none;
     display: inline-flex;
     align-items: center;
@@ -350,28 +350,31 @@ body::after {
     cursor: not-allowed;
 }
 
-/* Primary: solid copper */
+/* Primary: green gradient fill, white text, soft glow on hover */
 .btn-primary {
-    background: var(--accent-primary);
+    background: linear-gradient(135deg, #00c853, #00a843);
     color: #fff;
-    border: none;
-    box-shadow: var(--shadow-sm);
+    border: 1px solid rgba(29, 233, 182, 0.4);
+    box-shadow: 0 2px 12px rgba(0, 200, 83, 0.25);
 }
 
 .btn-primary:hover:not(:disabled) {
-    background: var(--accent-dark);
-    box-shadow: var(--shadow-md);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 20px rgba(0, 200, 83, 0.4);
 }
 
-/* Secondary: transparent + copper border */
+/* Secondary: blue gradient border + transparent fill, hover glow */
 .btn-secondary {
-    background: transparent;
-    color: var(--accent-primary);
-    border: 1px solid var(--accent-primary);
+    background: rgba(41, 98, 255, 0.08);
+    color: #93c5fd;
+    border: 1px solid rgba(41, 98, 255, 0.5);
+    box-shadow: 0 0 0 0 rgba(41, 98, 255, 0.2);
 }
 
 .btn-secondary:hover:not(:disabled) {
-    background: rgba(184, 115, 51, 0.1);
+    background: rgba(41, 98, 255, 0.15);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 16px rgba(41, 98, 255, 0.3);
 }
 
 .btn-sm {

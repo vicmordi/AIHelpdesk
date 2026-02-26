@@ -126,7 +126,7 @@ async def get_articles(current_user: dict = Depends(require_admin_or_above)):
         result.sort(key=lambda x: x.get("createdAt", ""), reverse=True)
         if organization_id:
             try:
-                log_activity(db, organization_id=organization_id, user_id=current_user["uid"], user_role=current_user.get("role") or "employee", action_type=ACTION_KNOWLEDGE_BASE_VIEW, action_label="Knowledge base view", metadata={"section": "list"})
+                log_activity(db, organization_id=organization_id, user_id=current_user["uid"], user_role=current_user.get("role") or "employee", action_type=ACTION_KNOWLEDGE_BASE_VIEW, action_label="Knowledge base view", metadata={"section": "list"}, user_name=(current_user.get("name") or current_user.get("email") or "").strip())
             except Exception:
                 pass
         return {"articles": result}

@@ -118,6 +118,9 @@ function showPage(pageId) {
     } else if (pageId === "users") {
         if (currentUser?.role === "super_admin") loadUserManagementPage();
         else document.getElementById("user-mgmt-table-wrap") && (document.getElementById("user-mgmt-table-wrap").innerHTML = "<p class=\"empty-state\">Access denied. Super Admin only.</p>");
+    } else if (pageId === "activity-logs") {
+        if (currentUser?.role === "super_admin") loadActivityLogsPage();
+        else document.getElementById("activity-logs-table-wrap") && (document.getElementById("activity-logs-table-wrap").innerHTML = "<p class=\"empty-state\">Access denied. Super Admin only.</p>");
     } else if (pageId === "settings") {
         if (currentUser?.role === "super_admin") loadSettingsPage();
         else document.getElementById("settings-content") && (document.getElementById("settings-content").innerHTML = "<p class=\"empty-state\">Access denied. Super admin only.</p>");
@@ -357,6 +360,124 @@ async function loadSettingsPage() {
     } catch (e) {
         content.innerHTML = `<p class="error-message">${e.message || "Failed to load settings"}</p>`;
     }
+}
+
+// —— Activity Logs page (Super Admin only): full audit list + filters + export CSV ——
+let lastActivityLogs = [];
+
+function getActivityLogStatusBadgeClass(actionType) {
+    if (actionType === "login_failed") return "badge-activity-failed";
+    if (actionType === "brute_force_attempt") return "badge-activity-brute";
+    if (actionType === "login_success" || actionType === "login") return "badge-activity-success";
+    return "badge-activity-normal";
+}
+
+async function loadActivityLogsPage() {
+    const wrap = document.getElementById("activity-logs-table-wrap");
+    if (!wrap) return;
+    const dateFrom = document.getElementById("al-date-from")?.value || "";
+    const dateTo = document.getElementById("al-date-to")?.value || "";
+    const actionType = document.getElementById("al-action-type")?.value || "";
+    const role = document.getElementById("al-role")?.value || "";
+    const search = document.getElementById("al-search")?.value?.trim() || "";
+    const ip = document.getElementById("al-ip")?.value?.trim() || "";
+    const params = new URLSearchParams();
+    if (dateFrom) params.set("date_from", dateFrom);
+    if (dateTo) params.set("date_to", dateTo);
+    if (actionType) params.set("action_type", actionType);
+    if (role) params.set("user_role", role);
+    if (search) params.set("search", search);
+    if (ip) params.set("ip_address", ip);
+    wrap.innerHTML = "<p class=\"loading\">Loading…</p>";
+    try {
+        const data = await apiRequest("/analytics/activity-logs" + (params.toString() ? "?" + params.toString() : ""));
+        const logs = data.logs || [];
+        lastActivityLogs = logs;
+        if (logs.length === 0) {
+            wrap.innerHTML = "<p class=\"empty-state\">No activity logs match the filters.</p>";
+            return;
+        }
+        wrap.innerHTML = `
+            <table class="data-table activity-logs-table">
+                <thead>
+                    <tr>
+                        <th>Time</th>
+                        <th>User</th>
+                        <th>Role</th>
+                        <th>Action</th>
+                        <th>Page</th>
+                        <th>IP</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${logs.map((r) => {
+                        const meta = r.metadata || {};
+                        const page = meta.page || "—";
+                        const ipVal = meta.ip_address || "—";
+                        const statusClass = getActivityLogStatusBadgeClass(r.action_type);
+                        const statusLabel = r.action_type === "login_failed" ? "Failed" : r.action_type === "brute_force_attempt" ? "Brute force" : r.action_type === "login_success" || r.action_type === "login" ? "Success" : "Activity";
+                        const details = [
+                            r.action_label ? `Label: ${escapeHtml(r.action_label)}` : "",
+                            meta.ticket_id ? `Ticket: ${escapeHtml(meta.ticket_id)}` : "",
+                            meta.clicked_button ? `Button: ${escapeHtml(meta.clicked_button)}` : "",
+                            meta.attempted_email ? `Attempted: ${escapeHtml(meta.attempted_email)}` : "",
+                        ].filter(Boolean).join(" · ");
+                        return `
+                        <tr class="activity-log-row" data-log-id="${escapeHtml(r.id || "")}" role="button" tabindex="0">
+                            <td>${formatActivityTimestamp(r.created_at)}</td>
+                            <td>${escapeHtml(r.user_name || (r.user_id || "").slice(0, 8) || "—")}</td>
+                            <td><span class="badge badge-neutral">${escapeHtml(r.user_role || "—")}</span></td>
+                            <td>${escapeHtml(r.action_type || "")}</td>
+                            <td>${escapeHtml(page)}</td>
+                            <td>${escapeHtml(ipVal)}</td>
+                            <td><span class="badge ${statusClass}">${statusLabel}</span></td>
+                        </tr>
+                        <tr class="activity-log-detail-row" data-log-id="${escapeHtml(r.id || "")}" style="display: none;">
+                            <td colspan="7" class="activity-log-detail-cell">${details ? escapeHtml(details) : "—"}</td>
+                        </tr>`;
+                    }).join("")}
+                </tbody>
+            </table>
+        `;
+        wrap.querySelectorAll(".activity-log-row").forEach((row) => {
+            row.addEventListener("click", () => {
+                const id = row.dataset.logId;
+                const detailRow = wrap.querySelector(`.activity-log-detail-row[data-log-id="${id}"]`);
+                if (detailRow) detailRow.style.display = detailRow.style.display === "none" ? "table-row" : "none";
+            });
+        });
+    } catch (e) {
+        wrap.innerHTML = `<p class="error-message">${e.message || "Failed to load activity logs."}</p>`;
+        lastActivityLogs = [];
+    }
+}
+
+function exportActivityLogsCSV() {
+    if (lastActivityLogs.length === 0) {
+        showError("No data to export. Apply filters and load activity logs first.");
+        return;
+    }
+    const headers = ["Time", "User", "Role", "Action", "Page", "IP", "Status", "Details"];
+    const rows = lastActivityLogs.map((r) => {
+        const meta = r.metadata || {};
+        const statusLabel = r.action_type === "login_failed" ? "Failed" : r.action_type === "brute_force_attempt" ? "Brute force" : r.action_type === "login_success" || r.action_type === "login" ? "Success" : "Activity";
+        const timeStr = formatActivityTimestamp(r.created_at);
+        const details = [r.action_label, meta.ticket_id ? `Ticket: ${meta.ticket_id}` : "", meta.clicked_button ? `Button: ${meta.clicked_button}` : "", meta.attempted_email ? `Attempted: ${meta.attempted_email}` : ""].filter(Boolean).join("; ");
+        const escapeCsv = (v) => {
+            const s = String(v ?? "");
+            if (s.includes(",") || s.includes('"') || s.includes("\n")) return `"${s.replace(/"/g, '""')}"`;
+            return s;
+        };
+        return [timeStr, r.user_name || r.user_id || "", r.user_role || "", r.action_type || "", meta.page || "", meta.ip_address || "", statusLabel, details].map(escapeCsv).join(",");
+    });
+    const csv = [headers.join(","), ...rows].join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `activity-logs-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(a.href);
 }
 
 // ─── Knowledge Improvement (Super Admin only) ─────────────────────────────────
@@ -648,6 +769,7 @@ async function runKnowledgeAnalysis() {
 }
 
 async function approveKnowledgeSuggestion(id) {
+    logActivity("button_click", "Approve KB", { clicked_button: "Approve KB" });
     try {
         const data = await apiRequest(`/admin/knowledge-improvement/suggestions/${id}/approve`, { method: "POST" });
         showSuccess(data.message || "Article published.");
@@ -658,6 +780,7 @@ async function approveKnowledgeSuggestion(id) {
 }
 
 async function rejectKnowledgeSuggestion(id) {
+    logActivity("button_click", "Reject KB", { clicked_button: "Reject KB" });
     if (!confirm("Reject this suggestion? It will not be published.")) return;
     const reason = prompt("Optional: Reason for rejection (stored for decision-aware dedup):");
     const body = reason && reason.trim() ? { decision_reason: reason.trim() } : {};
@@ -862,6 +985,19 @@ document.addEventListener('DOMContentLoaded', () => {
     if (activityDateTo && !activityDateTo.value) {
         activityDateTo.value = new Date().toISOString().slice(0, 10);
     }
+
+    const alApply = document.getElementById("al-apply");
+    const alExport = document.getElementById("al-export-csv");
+    if (alApply) alApply.addEventListener("click", () => loadActivityLogsPage());
+    if (alExport) alExport.addEventListener("click", () => exportActivityLogsCSV());
+    const alDateFrom = document.getElementById("al-date-from");
+    const alDateTo = document.getElementById("al-date-to");
+    if (alDateFrom && !alDateFrom.value) {
+        const d = new Date();
+        d.setDate(d.getDate() - 30);
+        alDateFrom.value = d.toISOString().slice(0, 10);
+    }
+    if (alDateTo && !alDateTo.value) alDateTo.value = new Date().toISOString().slice(0, 10);
     
     // Article modal: Edit / Cancel / Save (not close — close uses body delegation)
     document.getElementById('article-edit-btn')?.addEventListener('click', switchToEditMode);

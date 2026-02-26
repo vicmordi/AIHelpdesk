@@ -27,6 +27,52 @@ def get_db():
     return firestore.client()
 
 
+def _get_client_ip(request: Request) -> str:
+    """Client IP for activity logging (X-Forwarded-For or request.client.host)."""
+    from brute_force import get_client_ip as _ip
+    return _ip(request)
+
+
+def _log_failed_login_and_brute_force(request: Request, organization_code: Optional[str], attempted_email: str) -> None:
+    """Log login_failed, then if IP exceeds threshold log brute_force_attempt. Non-blocking."""
+    try:
+        from brute_force import get_client_ip, record_failed_login, clear_after_brute_force_log
+        from activity_logging import log_activity, ACTION_LOGIN_FAILED, ACTION_BRUTE_FORCE_ATTEMPT
+        client_ip = get_client_ip(request)
+        db = get_db()
+        org_id = ""
+        if (organization_code or "").strip():
+            orgs = db.collection("organizations").where("organization_code", "==", organization_code.strip()).limit(1).stream()
+            org_doc = next(orgs, None)
+            if org_doc:
+                org_id = org_doc.id
+        meta = {"attempted_email": attempted_email or ""}
+        if client_ip:
+            meta["ip_address"] = client_ip
+        log_activity(
+            db,
+            organization_id=org_id,
+            user_id="",
+            user_role="",
+            action_type=ACTION_LOGIN_FAILED,
+            action_label="Login failed",
+            metadata=meta,
+        )
+        if record_failed_login(client_ip):
+            log_activity(
+                db,
+                organization_id=org_id,
+                user_id="",
+                user_role="",
+                action_type=ACTION_BRUTE_FORCE_ATTEMPT,
+                action_label="Brute force attempt detected",
+                metadata=meta,
+            )
+            clear_after_brute_force_log(client_ip)
+    except Exception as e:
+        logger.exception("Failed to log login_failed/brute_force: %s", e)
+
+
 class LoginRequest(BaseModel):
     model_config = STRICT_REQUEST_CONFIG
     email: EmailStr
@@ -116,14 +162,27 @@ async def login(request: Request, response: Response, body: LoginRequest):
         role = user_data.get("role", "employee")
         if role == "admin":
             role = "super_admin"
+        user_name = (user_data.get("full_name") or user_data.get("name") or user_data.get("email") or "").strip()
+        client_ip = _get_client_ip(request)
         try:
-            from activity_logging import log_activity, ACTION_LOGIN
-            log_activity(db, organization_id=org_id, user_id=uid, user_role=role, action_type=ACTION_LOGIN, action_label="User login", metadata=None)
+            from activity_logging import log_activity, ACTION_LOGIN_SUCCESS
+            log_activity(
+                db,
+                organization_id=org_id,
+                user_id=uid,
+                user_role=role,
+                action_type=ACTION_LOGIN_SUCCESS,
+                action_label="Login success",
+                metadata={"ip_address": client_ip} if client_ip else None,
+                user_name=user_name,
+            )
         except Exception:
             pass  # Non-blocking
 
         return JSONResponse(content={"token": data["idToken"], "email": data.get("email")})
-    except HTTPException:
+    except HTTPException as e:
+        if e.status_code == 401:
+            _log_failed_login_and_brute_force(request, body.organization_code, body.email)
         raise
     except Exception as e:
         logger.exception("Login failed: %s", e)

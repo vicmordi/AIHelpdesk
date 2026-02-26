@@ -1,7 +1,3 @@
-# Deploy to Firebase Hosting
-# - main: uses official Firebase action (live channel)
-# - dev: uses direct CLI with forced public registry (fixes npm 403 issues)
-
 name: Deploy to Firebase Hosting
 
 on:
@@ -11,21 +7,18 @@ on:
       - dev
 
 jobs:
-
-  ##############################################
-  # MAIN BRANCH — LIVE DEPLOY (UNCHANGED)
-  ##############################################
+  # =============================
+  # MAIN → LIVE DEPLOY
+  # =============================
   deploy_main:
     if: github.ref == 'refs/heads/main'
     name: Deploy to Live
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Deploy to Firebase Live Channel
-        uses: FirebaseExtended/action-hosting-deploy@v0
+      - uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
           firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_AIHELPDESK_21060 }}
@@ -33,54 +26,20 @@ jobs:
           projectId: aihelpdesk-21060
 
 
-  ##############################################
-  # DEV BRANCH — PREVIEW DEPLOY (FIXED VERSION)
-  ##############################################
+  # =============================
+  # DEV → PREVIEW DEPLOY
+  # =============================
   deploy_dev_preview:
     if: github.ref == 'refs/heads/dev'
     name: Deploy to Dev Preview
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: FirebaseExtended/action-hosting-deploy@v0
         with:
-          node-version: '20'
-
-      # GitHub injects NODE_AUTH_TOKEN when setup-node uses registry-url; npm then uses it
-      # for ALL registry requests. Public registry rejects this and returns 403 Forbidden.
-      # Must clear it before any npm/npx so public packages (firebase-tools, @google-cloud/*)
-      # are fetched without auth.
-      - name: Remove injected npm auth
-        run: |
-          unset NODE_AUTH_TOKEN
-          npm config delete //registry.npmjs.org/:_authToken || true
-          echo "Cleared npm auth token"
-
-      - name: Reset npm configuration
-        run: |
-          npm cache clean --force
-          npm config delete registry || true
-          npm config set registry https://registry.npmjs.org/
-          npm config list
-
-      - name: Validate public folder exists
-        run: |
-          if [ ! -d "public" ]; then
-            echo "::error::public folder missing"
-            exit 1
-          fi
-
-      # Use npx with pinned version (no global install)
-      - name: Deploy to Firebase preview channel
-        run: |
-          npx --yes firebase-tools@13.15.0 hosting:channel:deploy dev \
-          --expires 7d \
-          --project aihelpdesk-21060 \
-          --non-interactive \
-          --token "$FIREBASE_TOKEN"
-        env:
-          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_AIHELPDESK_21060 }}
+          channelId: dev
+          projectId: aihelpdesk-21060

@@ -81,6 +81,44 @@
                         <a href="#knowledge-base/add" class="btn btn-secondary btn-sm">Add Article</a>
                     </div>
                 </div>
+                <div id="dashboard-activity-overview-wrap" class="dashboard-activity-overview" style="display: none;">
+                    <h2 class="admin-page-header" style="margin-top: 24px; margin-bottom: 12px;">User Activity Overview</h2>
+                    <div class="activity-filters card" style="margin-bottom: 16px; padding: 12px 16px;">
+                        <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px;">
+                            <label>From <input type="date" id="activity-date-from" class="input"></label>
+                            <label>To <input type="date" id="activity-date-to" class="input"></label>
+                            <label>Role
+                                <select id="activity-role-filter" class="input" style="min-width: 140px;">
+                                    <option value="">All roles</option>
+                                    <option value="super_admin">Super Admin</option>
+                                    <option value="support_admin">Support Admin</option>
+                                    <option value="employee">Employee</option>
+                                </select>
+                            </label>
+                            <button type="button" id="activity-apply-filters" class="btn btn-primary btn-sm">Apply</button>
+                        </div>
+                    </div>
+                    <div class="dashboard-charts" style="margin-bottom: 16px;">
+                        <div class="card dashboard-chart-card">
+                            <div class="card-header"><h2>Logins per day</h2></div>
+                            <div class="card-body">
+                                <canvas id="activity-logins-bar-chart" height="220"></canvas>
+                            </div>
+                        </div>
+                        <div class="card dashboard-chart-card">
+                            <div class="card-header"><h2>Action distribution</h2></div>
+                            <div class="card-body">
+                                <canvas id="activity-pie-chart" height="220"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card">
+                        <div class="card-header"><h2>Recent activities</h2></div>
+                        <div class="card-body">
+                            <div id="activity-recent-table-wrap"><p class="empty-state">Loading…</p></div>
+                        </div>
+                    </div>
+                </div>
             </section>
 
             <!-- Knowledge Improvement page (Super Admin only) -->

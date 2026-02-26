@@ -113,6 +113,15 @@ async def login(request: Request, response: Response, body: LoginRequest):
 
         user_ref.update({"last_login": datetime.utcnow().isoformat()})
 
+        role = user_data.get("role", "employee")
+        if role == "admin":
+            role = "super_admin"
+        try:
+            from activity_logging import log_activity, ACTION_LOGIN
+            log_activity(db, organization_id=org_id, user_id=uid, user_role=role, action_type=ACTION_LOGIN, action_label="User login", metadata=None)
+        except Exception:
+            pass  # Non-blocking
+
         return JSONResponse(content={"token": data["idToken"], "email": data.get("email")})
     except HTTPException:
         raise

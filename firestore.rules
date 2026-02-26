@@ -43,6 +43,11 @@ service cloud.firestore {
       allow read, write: if isAdmin();
     }
 
+    // Activity logs — backend-only (service account). No client read/write.
+    match /activity_logs/{logId} {
+      allow read, write: if false;
+    }
+
     // Tickets collection
     match /tickets/{ticketId} {
       // Users can read their own tickets

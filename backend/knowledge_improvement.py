@@ -15,6 +15,7 @@ from typing import List, Dict, Any, Optional, Tuple
 
 from openai import OpenAI
 from firebase_admin import firestore
+from firebase_admin.firestore import SERVER_TIMESTAMP
 
 from config import OPENAI_API_KEY
 
@@ -308,6 +309,32 @@ def _check_suggestion_by_cluster_signature(
     return None
 
 
+def _check_suggestion_by_cluster_id(
+    db, organization_id: str, cluster_id: str
+) -> Optional[Tuple[str, Optional[str], Optional[str]]]:
+    """
+    Fallback: check by cluster_id (hash of ticket IDs).
+    Older suggestions may not have cluster_signature; they always have cluster_id.
+    Returns (status, suggestion_id, decision_reason) if found, else None.
+    Ensures rejected suggestions are never recreated as drafts.
+    """
+    ref = (
+        db.collection("knowledge_suggestions")
+        .where("organization_id", "==", organization_id)
+        .where("cluster_id", "==", cluster_id)
+    )
+    for doc in ref.limit(1).stream():
+        d = doc.to_dict()
+        status = d.get("status")
+        if status == "rejected":
+            return ("rejected", doc.id, d.get("decision_reason"))
+        if status == "approved":
+            return ("approved", doc.id, None)
+        if status == "draft":
+            return ("draft", doc.id, None)
+    return None
+
+
 def _check_kb_similarity(
     db,
     organization_id: str,
@@ -355,7 +382,7 @@ def run_analysis_for_organization(
     Returns:
       new_drafts: list of newly created suggestion summaries
       previously_rejected: list of { cluster_signature, suggestion_id, decision_reason?, normalized_topic }
-      already_existing: list of { cluster_signature, linked_kb_id, title, normalized_topic }
+      already_existing_kb: list of { cluster_signature, linked_kb_id, title, normalized_topic }
       already_approved: list of { cluster_signature, suggestion_id, linked_kb_id }
       clusters_processed: int
     """
@@ -367,7 +394,7 @@ def run_analysis_for_organization(
 
     new_drafts: List[Dict[str, Any]] = []
     previously_rejected: List[Dict[str, Any]] = []
-    already_existing: List[Dict[str, Any]] = []
+    already_existing_kb: List[Dict[str, Any]] = []
     already_approved: List[Dict[str, Any]] = []
 
     for cluster, avg_similarity in clusters_with_sim:
@@ -379,8 +406,11 @@ def run_analysis_for_organization(
         normalized_topic = _normalize_topic(raw_topic)
         sig = _cluster_signature(normalized_topic)
 
-        # 1) Check knowledge_suggestions by cluster_signature
+        # 1) Check knowledge_suggestions by cluster_signature (topic-based dedup)
         existing = _check_suggestion_by_cluster_signature(db, organization_id, sig)
+        # 2) Fallback: check by cluster_id so older/rejected suggestions (without cluster_signature) are not duplicated
+        if existing is None:
+            existing = _check_suggestion_by_cluster_id(db, organization_id, cluster_id)
         if existing:
             status, suggestion_id, decision_reason = existing
             if status == "rejected":
@@ -416,7 +446,7 @@ def run_analysis_for_organization(
         if cluster_emb:
             kb_match = _check_kb_similarity(db, organization_id, cluster_emb, client)
             if kb_match:
-                already_existing.append({
+                already_existing_kb.append({
                     "cluster_signature": sig,
                     "linked_kb_id": kb_match["id"],
                     "title": kb_match.get("title", ""),
@@ -425,7 +455,7 @@ def run_analysis_for_organization(
                 })
                 continue
 
-        # 3) No reject, no approve, no KB match — create new draft
+        # 4) Only create new draft if cluster_signature (and cluster_id) do NOT exist in suggestions
         if check_cluster_already_suggested(db, organization_id, cluster_id):
             continue
         article = _generate_kb_article_from_cluster(cluster, client)
@@ -461,11 +491,11 @@ def run_analysis_for_organization(
         })
         logger.info("Created KB suggestion: title=%s, cluster_size=%d, confidence=%d", article["title"], len(cluster), confidence_score)
 
-    _update_analysis_metadata(db, organization_id, len(clusters_with_sim), new_drafts, previously_rejected, already_existing, already_approved)
+    _update_analysis_metadata(db, organization_id, len(clusters_with_sim), new_drafts, previously_rejected, already_existing_kb, already_approved)
     return {
         "new_drafts": new_drafts,
         "previously_rejected": previously_rejected,
-        "already_existing": already_existing,
+        "already_existing_kb": already_existing_kb,
         "already_approved": already_approved,
         "clusters_processed": len(clusters_with_sim),
     }
@@ -477,7 +507,7 @@ def _update_analysis_metadata(
     recurring_issues_detected: int,
     new_drafts: Optional[List[Dict[str, Any]]] = None,
     previously_rejected: Optional[List[Dict[str, Any]]] = None,
-    already_existing: Optional[List[Dict[str, Any]]] = None,
+    already_existing_kb: Optional[List[Dict[str, Any]]] = None,
     already_approved: Optional[List[Dict[str, Any]]] = None,
 ) -> None:
     """Store last analysis run timestamp, counts, and last run result for frontend."""
@@ -490,17 +520,17 @@ def _update_analysis_metadata(
     ref = db.collection("knowledge_analysis_state").document(organization_id)
     payload = {
         "organization_id": organization_id,
-        "last_analysis_run": datetime.utcnow().isoformat(),
+        "last_analysis_run": SERVER_TIMESTAMP,
         "recurring_issues_detected": recurring_issues_detected,
         "resolved_count_at_last_run": resolved_count,
-        "updated_at": datetime.utcnow().isoformat(),
+        "updated_at": SERVER_TIMESTAMP,
     }
     if new_drafts is not None:
         payload["last_run_new_drafts"] = new_drafts
     if previously_rejected is not None:
         payload["last_run_previously_rejected"] = previously_rejected
-    if already_existing is not None:
-        payload["last_run_already_existing"] = already_existing
+    if already_existing_kb is not None:
+        payload["last_run_already_existing_kb"] = already_existing_kb
     if already_approved is not None:
         payload["last_run_already_approved"] = already_approved
     ref.set(payload, merge=True)
@@ -686,15 +716,24 @@ def get_analytics(db, organization_id: str) -> Dict[str, Any]:
     recurring_issues_detected = 0
     last_run_new_drafts = []
     last_run_previously_rejected = []
-    last_run_already_existing = []
+    last_run_already_existing_kb = []
     last_run_already_approved = []
     if meta_doc.exists:
         meta = meta_doc.to_dict()
-        last_analysis_run = meta.get("last_analysis_run")
+        raw_last = meta.get("last_analysis_run")
+        # Serialize for API: Firestore Timestamp -> {seconds, nanoseconds}; datetime -> same; str (legacy) -> as-is
+        if raw_last is not None:
+            if hasattr(raw_last, "seconds"):
+                last_analysis_run = {"seconds": raw_last.seconds, "nanoseconds": getattr(raw_last, "nanoseconds", 0)}
+            elif hasattr(raw_last, "timestamp"):
+                s = int(raw_last.timestamp())
+                last_analysis_run = {"seconds": s, "nanoseconds": 0}
+            else:
+                last_analysis_run = raw_last  # legacy ISO string
         recurring_issues_detected = meta.get("recurring_issues_detected") or 0
         last_run_new_drafts = meta.get("last_run_new_drafts") or []
         last_run_previously_rejected = meta.get("last_run_previously_rejected") or []
-        last_run_already_existing = meta.get("last_run_already_existing") or []
+        last_run_already_existing_kb = meta.get("last_run_already_existing_kb") or meta.get("last_run_already_existing") or []
         last_run_already_approved = meta.get("last_run_already_approved") or []
     return {
         "recurring_issues_this_month": resolved_count,
@@ -703,6 +742,6 @@ def get_analytics(db, organization_id: str) -> Dict[str, Any]:
         "recurring_issues_detected": recurring_issues_detected,
         "last_run_new_drafts": last_run_new_drafts,
         "last_run_previously_rejected": last_run_previously_rejected,
-        "last_run_already_existing": last_run_already_existing,
+        "last_run_already_existing_kb": last_run_already_existing_kb,
         "last_run_already_approved": last_run_already_approved,
     }

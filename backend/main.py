@@ -26,6 +26,7 @@ from cors_ensure import CorsEnsureMiddleware, cors_headers_for_origin
 from rate_limit import limiter, rate_limit_exceeded_handler
 from routes import auth, knowledge_base, tickets, admin, organization, messages, notifications
 from routes import knowledge_improvement as knowledge_improvement_routes
+from routes import analytics
 
 
 def init_firebase():
@@ -130,3 +131,4 @@ app.include_router(
     prefix="/admin/knowledge-improvement",
     tags=["Knowledge Improvement"],
 )
+app.include_router(analytics.router, prefix="/analytics", tags=["Analytics"])

@@ -71,3 +71,16 @@ export function formatLocalTime(isoString) {
   if (Number.isNaN(d.getTime())) return String(isoString);
   return d.toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" });
 }
+
+/**
+ * Format last_analysis_run from API: Firestore { seconds, nanoseconds } or legacy ISO string.
+ * Ensures correct local time display with timezone consistency.
+ */
+export function formatLastAnalysisRun(value) {
+  if (value == null || value === "") return "";
+  if (typeof value === "object" && typeof value.seconds === "number") {
+    const d = new Date(value.seconds * 1000);
+    return d.toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" });
+  }
+  return formatLocalTime(value);
+}

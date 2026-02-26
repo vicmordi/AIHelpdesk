@@ -1,7 +1,7 @@
 /**
  * Admin Dashboard JavaScript — backend API only, hash-based pages, sidebar.
  */
-import { apiRequest, clearToken, isAuthenticated, formatLocalTime } from "./api.js";
+import { apiRequest, clearToken, isAuthenticated, formatLocalTime, formatLastAnalysisRun } from "./api.js";
 import { renderSidebar } from "./js/sidebar.js";
 
 let currentUser = null;
@@ -60,10 +60,22 @@ async function fetchUnreadCount() {
     } catch (_) {}
 }
 
+/** Log user activity (fire-and-forget). No sensitive data. */
+function logActivity(actionType, actionLabel, metadata = {}) {
+    if (!currentUser?.organization_id) return;
+    apiRequest("/analytics/activity", {
+        method: "POST",
+        body: JSON.stringify({ action_type: actionType, action_label: actionLabel || actionType, metadata }),
+    }).catch(() => {});
+}
+
 function showPage(pageId) {
     document.querySelectorAll(".admin-page").forEach((el) => {
         el.classList.toggle("active", el.getAttribute("data-page") === pageId);
     });
+    if (currentUser?.organization_id && pageId) {
+        logActivity("navigation", pageId, { page: pageId });
+    }
     if (pageId === "tickets") {
         loadAllTickets();
         loadAssignableMembers();
@@ -77,7 +89,18 @@ function showPage(pageId) {
         }
     } else if (pageId === "dashboard") {
         loadDashboardStats();
-        if (currentUser?.role === "super_admin") loadKnowledgeAnalytics();
+        if (currentUser?.role === "super_admin") {
+            loadKnowledgeAnalytics();
+            const activityWrap = document.getElementById("dashboard-activity-overview-wrap");
+            if (activityWrap) {
+                activityWrap.style.display = "block";
+                loadActivitySummary();
+            }
+            logActivity("dashboard_view", "Dashboard view", {});
+        } else {
+            const activityWrap = document.getElementById("dashboard-activity-overview-wrap");
+            if (activityWrap) activityWrap.style.display = "none";
+        }
     }
     else if (pageId === "messages") loadMessagesPage();
     else if (pageId === "knowledge-improvement") {
@@ -386,14 +409,14 @@ async function loadKnowledgeImprovementPage() {
         const approved = approvedRes.suggestions || [];
         const lastRunNew = analyticsData.last_run_new_drafts || [];
         const lastRunRejected = analyticsData.last_run_previously_rejected || [];
-        const lastRunExisting = analyticsData.last_run_already_existing || [];
+        const lastRunExisting = analyticsData.last_run_already_existing_kb || analyticsData.last_run_already_existing || [];
         const lastRunApproved = analyticsData.last_run_already_approved || [];
 
         const lastRun = analyticsData.last_analysis_run;
         const recurringDetected = analyticsData.recurring_issues_detected ?? 0;
         const lastEl = document.getElementById("ki-last-analysis");
         const recurEl = document.getElementById("ki-recurring-detected");
-        if (lastEl) lastEl.textContent = lastRun ? formatLocalTime(lastRun) : "—";
+        if (lastEl) lastEl.textContent = lastRun ? formatLastAnalysisRun(lastRun) : "—";
         if (recurEl) recurEl.textContent = String(recurringDetected);
 
         function renderCard(s, showViewBtn = true, label = "View & Review") {
@@ -427,7 +450,23 @@ async function loadKnowledgeImprovementPage() {
             document.getElementById("ki-badge-rejected").textContent = String(rejected.length);
             listRejected.innerHTML = rejected.length === 0
                 ? "<p class=\"empty-state\">No rejected suggestions.</p>"
-                : rejected.map((s) => renderCard(s, true, "View")).join("");
+                : rejected.map((s) => {
+                    const conf = s.confidence_score != null ? s.confidence_score : "—";
+                    return `
+                    <div class="kb-article-card" data-suggestion-id="${escapeHtml(s.id)}">
+                        <div class="kb-article-title">${escapeHtml(s.title || "Untitled")}</div>
+                        <div class="kb-article-meta" style="margin-top: 8px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center;">
+                            <span class="badge badge-info">${s.ticket_count || 0} tickets</span>
+                            ${conf !== "—" ? `<span class="badge badge-neutral">${conf}% confidence</span>` : ""}
+                            <span class="badge badge-neutral">Previously Rejected</span>
+                            ${s.created_at ? `<span style="font-size: 12px; color: var(--text-tertiary);">${formatLocalTime(s.created_at)}</span>` : ""}
+                        </div>
+                        <div class="kb-article-preview" style="margin-top: 8px; font-size: 13px; max-height: 60px; overflow: hidden; text-overflow: ellipsis;">
+                            ${escapeHtml((s.content || "").slice(0, 150))}${(s.content || "").length > 150 ? "…" : ""}
+                        </div>
+                        <div style="margin-top: 12px;"><button type="button" class="btn btn-small btn-secondary view-suggestion-btn" data-id="${escapeHtml(s.id)}">View</button></div>
+                    </div>`;
+                }).join("");
         }
         if (listCovered) {
             document.getElementById("ki-badge-covered").textContent = String(lastRunExisting.length);
@@ -485,8 +524,9 @@ async function showSuggestionReviewPage(suggestionId) {
         document.getElementById("ki-review-title").textContent = s.title || "Untitled";
         const statusBadge = document.getElementById("ki-review-status-badge");
         if (statusBadge) {
-            statusBadge.textContent = s.status || "draft";
-            statusBadge.className = "badge " + ((s.status || "") === "draft" ? "badge-warning" : (s.status || "") === "approved" ? "badge-success" : "badge-neutral");
+            const st = s.status || "draft";
+            statusBadge.textContent = st === "rejected" ? "Previously Rejected" : st;
+            statusBadge.className = "badge " + (st === "draft" ? "badge-warning" : st === "approved" ? "badge-success" : "badge-neutral");
         }
         document.getElementById("ki-review-category").textContent = s.category || "—";
         document.getElementById("ki-review-ticket-count").textContent = s.ticket_count || s.related_tickets?.length || 0;
@@ -809,6 +849,19 @@ document.addEventListener('DOMContentLoaded', () => {
             if (filter) filterTicketsByStat(filter);
         });
     });
+
+    const activityApplyBtn = document.getElementById("activity-apply-filters");
+    if (activityApplyBtn) activityApplyBtn.addEventListener("click", () => loadActivitySummary());
+    const activityDateFrom = document.getElementById("activity-date-from");
+    const activityDateTo = document.getElementById("activity-date-to");
+    if (activityDateFrom && !activityDateFrom.value) {
+        const d = new Date();
+        d.setDate(d.getDate() - 30);
+        activityDateFrom.value = d.toISOString().slice(0, 10);
+    }
+    if (activityDateTo && !activityDateTo.value) {
+        activityDateTo.value = new Date().toISOString().slice(0, 10);
+    }
     
     // Article modal: Edit / Cancel / Save (not close — close uses body delegation)
     document.getElementById('article-edit-btn')?.addEventListener('click', switchToEditMode);
@@ -1435,6 +1488,126 @@ function updateDashboardCharts(tickets) {
                 },
                 plugins: {
                     legend: { display: false },
+                },
+            },
+        });
+    }
+}
+
+let activityLoginsBarChart = null;
+let activityPieChart = null;
+
+function formatActivityTimestamp(ts) {
+    if (!ts) return "—";
+    if (typeof ts === "object" && typeof ts.seconds === "number") {
+        return new Date(ts.seconds * 1000).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" });
+    }
+    return formatLocalTime(ts);
+}
+
+function loadActivitySummary() {
+    const dateFromEl = document.getElementById("activity-date-from");
+    const dateToEl = document.getElementById("activity-date-to");
+    const roleEl = document.getElementById("activity-role-filter");
+    const wrap = document.getElementById("activity-recent-table-wrap");
+    if (!wrap) return;
+    wrap.innerHTML = "<p class=\"loading\">Loading…</p>";
+    const params = new URLSearchParams();
+    if (dateFromEl?.value) params.set("date_from", dateFromEl.value);
+    if (dateToEl?.value) params.set("date_to", dateToEl.value);
+    if (roleEl?.value) params.set("role", roleEl.value);
+    const qs = params.toString();
+    const url = "/analytics/activity-summary" + (qs ? "?" + qs : "");
+    apiRequest(url)
+        .then((data) => {
+            updateActivityCharts(data);
+            const recent = data.recent_activities || [];
+            if (recent.length === 0) {
+                wrap.innerHTML = "<p class=\"empty-state\">No activity in this period.</p>";
+                return;
+            }
+            wrap.innerHTML = `
+                <table class="data-table">
+                    <thead><tr><th>Time</th><th>User</th><th>Role</th><th>Action</th><th>Details</th></tr></thead>
+                    <tbody>
+                        ${recent.map((r) => `
+                            <tr>
+                                <td>${formatActivityTimestamp(r.created_at)}</td>
+                                <td>${escapeHtml((r.user_id || "").slice(0, 8))}…</td>
+                                <td><span class="badge badge-neutral">${escapeHtml(r.user_role || "")}</span></td>
+                                <td>${escapeHtml(r.action_type || "")}</td>
+                                <td>${escapeHtml(r.action_label || "")} ${r.metadata?.ticket_id ? `(ticket: ${escapeHtml(r.metadata.ticket_id)})` : ""} ${r.metadata?.page ? `page: ${escapeHtml(r.metadata.page)}` : ""}</td>
+                            </tr>
+                        `).join("")}
+                    </tbody>
+                </table>
+            `;
+        })
+        .catch(() => {
+            wrap.innerHTML = "<p class=\"empty-state\">Failed to load activity.</p>";
+        });
+}
+
+function updateActivityCharts(data) {
+    const ChartLib = typeof window !== "undefined" && window.Chart;
+    if (!ChartLib) return;
+
+    const loginsPerDay = data.logins_per_day || [];
+    const barCtx = document.getElementById("activity-logins-bar-chart");
+    if (barCtx) {
+        if (activityLoginsBarChart) {
+            activityLoginsBarChart.destroy();
+            activityLoginsBarChart = null;
+        }
+        activityLoginsBarChart = new ChartLib(barCtx, {
+            type: "bar",
+            data: {
+                labels: loginsPerDay.map((d) => d.date),
+                datasets: [{
+                    label: "Logins",
+                    data: loginsPerDay.map((d) => d.count),
+                    backgroundColor: "rgba(90, 143, 106, 0.8)",
+                    borderColor: "rgb(90, 143, 106)",
+                    borderWidth: 1,
+                }],
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: { beginAtZero: true, ticks: { stepSize: 1, color: "#8b8f98" }, grid: { color: "rgba(255,255,255,0.06)" } },
+                    x: { ticks: { color: "#8b8f98" }, grid: { color: "rgba(255,255,255,0.06)" } },
+                },
+                plugins: { legend: { display: false } },
+            },
+        });
+    }
+
+    const actionsGrouped = data.actions_grouped_by_type || {};
+    const pieCtx = document.getElementById("activity-pie-chart");
+    if (pieCtx) {
+        if (activityPieChart) {
+            activityPieChart.destroy();
+            activityPieChart = null;
+        }
+        const labels = Object.keys(actionsGrouped);
+        const values = Object.values(actionsGrouped);
+        const colors = ["#5a8f6a", "#c4956a", "#a65d5d", "#b87333", "#6a8fa6", "#8f6a9e", "#8f8a6a"];
+        activityPieChart = new ChartLib(pieCtx, {
+            type: "doughnut",
+            data: {
+                labels,
+                datasets: [{
+                    data: values,
+                    backgroundColor: labels.map((_, i) => colors[i % colors.length]),
+                    borderWidth: 0,
+                }],
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { position: "bottom", labels: { color: "#c4c7cc" } },
                 },
             },
         });

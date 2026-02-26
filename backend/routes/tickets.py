@@ -14,6 +14,7 @@ from firebase_admin import firestore
 from config import OPENAI_API_KEY
 from middleware import verify_token, verify_admin, get_current_user, require_admin_or_above, require_super_admin
 from schemas import STRICT_REQUEST_CONFIG
+from activity_logging import log_activity, ACTION_TICKET_SUBMISSION, ACTION_TICKET_ESCALATION, ACTION_TICKET_RESOLUTION
 from flow_engine import (
     get_article_type,
     get_escalation_reply,
@@ -767,6 +768,13 @@ async def create_ticket(
 
         doc_ref = db.collection("tickets").add(ticket_data)
         ticket_id = doc_ref[1].id
+        if organization_id:
+            try:
+                log_activity(db, organization_id=organization_id, user_id=uid, user_role=current_user.get("role") or "employee", action_type=ACTION_TICKET_SUBMISSION, action_label="Ticket submitted", metadata={"ticket_id": ticket_id})
+                if ticket_data.get("status") == "escalated" or ticket_data.get("escalated"):
+                    log_activity(db, organization_id=organization_id, user_id=uid, user_role=current_user.get("role") or "employee", action_type=ACTION_TICKET_ESCALATION, action_label="Ticket escalated", metadata={"ticket_id": ticket_id})
+            except Exception:
+                pass
         return {
             "message": "Ticket created successfully",
             "ticket": {"id": ticket_id, **ticket_data}
@@ -1301,6 +1309,12 @@ async def add_message_to_ticket(
                     "status": "closed",
                     "resolved": True,
                 })
+                org_id_for_log = ticket_data.get("organization_id")
+                if org_id_for_log:
+                    try:
+                        log_activity(db, organization_id=org_id_for_log, user_id=ticket_user_id, user_role="employee", action_type=ACTION_TICKET_RESOLUTION, action_label="Ticket resolved (user confirm)", metadata={"ticket_id": ticket_id})
+                    except Exception:
+                        pass
                 return {"message": "Message added successfully", "ticket_id": ticket_id, "new_message": new_message}
             if msg_lower in ("no", "n") or _is_dissatisfaction(user_msg):
                 ticket_ref.update({
@@ -1334,6 +1348,12 @@ async def add_message_to_ticket(
                     "resolved": True,
                     "escalated": False,
                 })
+                org_id_for_log = ticket_data.get("organization_id")
+                if org_id_for_log:
+                    try:
+                        log_activity(db, organization_id=org_id_for_log, user_id=ticket_user_id, user_role="employee", action_type=ACTION_TICKET_RESOLUTION, action_label="Ticket resolved (AI)", metadata={"ticket_id": ticket_id})
+                    except Exception:
+                        pass
                 return {"message": "Message added successfully", "ticket_id": ticket_id, "new_message": new_message, "ai_reply": {"sender": "ai", "message": ai_reply, "createdAt": now_iso}, "resolved": True}
 
             # NO / not working / escalate → escalate to human
@@ -1357,6 +1377,12 @@ async def add_message_to_ticket(
                     "internal_note": (ticket_data.get("internal_note") or "") + " [User: NO / escalate]",
                     "ai_internal_summary": ai_summary,
                 })
+                org_id_for_log = ticket_data.get("organization_id")
+                if org_id_for_log:
+                    try:
+                        log_activity(db, organization_id=org_id_for_log, user_id=ticket_user_id, user_role="employee", action_type=ACTION_TICKET_ESCALATION, action_label="Ticket escalated (user)", metadata={"ticket_id": ticket_id})
+                    except Exception:
+                        pass
                 return {"message": "Message added successfully", "ticket_id": ticket_id, "new_message": new_message, "ai_reply": {"sender": "ai", "message": ai_reply, "createdAt": now_iso}}
 
         # Guided mode disabled: any legacy guided ticket → escalate
@@ -1386,6 +1412,12 @@ async def add_message_to_ticket(
                 "ai_internal_summary": ai_summary,
                 "last_activity_timestamp": now_iso,
             })
+            org_id_for_log = ticket_data.get("organization_id")
+            if org_id_for_log:
+                try:
+                    log_activity(db, organization_id=org_id_for_log, user_id=ticket_user_id, user_role="employee", action_type=ACTION_TICKET_ESCALATION, action_label="Ticket escalated (flow disabled)", metadata={"ticket_id": ticket_id})
+                except Exception:
+                    pass
             return {"message": "Message added successfully", "ticket_id": ticket_id, "new_message": new_message, "ai_reply": {"sender": "ai", "message": escalation_msg, "createdAt": now_iso}}
         else:
             ticket_ref.update({"messages": messages})
@@ -1506,6 +1538,14 @@ async def update_ticket_status(
             update_data["messages"] = messages
         ticket_ref.update(update_data)
         final_status = update_data["status"]
+        if organization_id:
+            try:
+                if final_status in ("resolved", "closed", "auto_resolved"):
+                    log_activity(db, organization_id=organization_id, user_id=current_user["uid"], user_role=current_user.get("role") or "support_admin", action_type=ACTION_TICKET_RESOLUTION, action_label="Ticket resolved", metadata={"ticket_id": ticket_id})
+                elif final_status == "escalated":
+                    log_activity(db, organization_id=organization_id, user_id=current_user["uid"], user_role=current_user.get("role") or "support_admin", action_type=ACTION_TICKET_ESCALATION, action_label="Ticket escalated", metadata={"ticket_id": ticket_id})
+            except Exception:
+                pass
         # Trigger Knowledge Improvement analysis when 10 new resolved tickets (background check)
         if final_status in ("closed", "resolved", "auto_resolved"):
             org_id = ticket_data.get("organization_id")

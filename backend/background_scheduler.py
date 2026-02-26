@@ -6,10 +6,10 @@ Multi-tenant safe. Uses cluster_id hash to prevent duplicate suggestions.
 
 import logging
 import os
-from datetime import datetime
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from firebase_admin import firestore
+from firebase_admin.firestore import SERVER_TIMESTAMP
 
 from knowledge_improvement import run_analysis_for_organization
 from config import OPENAI_API_KEY
@@ -100,7 +100,7 @@ def maybe_run_analysis_on_resolution(organization_id: str) -> None:
             state_ref.set({
                 "organization_id": organization_id,
                 "resolved_count_at_last_run": current_resolved,
-                "last_analysis_run": datetime.utcnow().isoformat(),
+                "last_analysis_run": SERVER_TIMESTAMP,
                 "trigger": "resolved_threshold",
             }, merge=True)
             logger.info(

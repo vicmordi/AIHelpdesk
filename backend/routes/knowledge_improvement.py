@@ -45,12 +45,12 @@ async def trigger_analysis(current_user: dict = Depends(require_super_admin)):
             "message": (
                 f"Analysis complete: {len(result['new_drafts'])} new draft(s), "
                 f"{len(result['previously_rejected'])} previously rejected, "
-                f"{len(result['already_existing'])} already covered by KB, "
+                f"{len(result['already_existing_kb'])} already covered by KB, "
                 f"{len(result['already_approved'])} already approved."
             ),
             "new_drafts": result["new_drafts"],
             "previously_rejected": result["previously_rejected"],
-            "already_existing": result["already_existing"],
+            "already_existing_kb": result["already_existing_kb"],
             "already_approved": result["already_approved"],
             "clusters_processed": result["clusters_processed"],
         }

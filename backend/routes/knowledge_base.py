@@ -10,6 +10,7 @@ from firebase_admin import firestore
 from middleware import require_admin_or_above, require_super_admin
 from flow_engine import normalize_article_to_flow, convert_legacy_content_to_flow
 from schemas import STRICT_REQUEST_CONFIG
+from activity_logging import log_activity, ACTION_KNOWLEDGE_BASE_VIEW
 
 router = APIRouter()
 
@@ -123,6 +124,11 @@ async def get_articles(current_user: dict = Depends(require_admin_or_above)):
                 "flow": article_data.get("flow"),
             })
         result.sort(key=lambda x: x.get("createdAt", ""), reverse=True)
+        if organization_id:
+            try:
+                log_activity(db, organization_id=organization_id, user_id=current_user["uid"], user_role=current_user.get("role") or "employee", action_type=ACTION_KNOWLEDGE_BASE_VIEW, action_label="Knowledge base view", metadata={"section": "list"})
+            except Exception:
+                pass
         return {"articles": result}
     except HTTPException:
         raise

@@ -138,8 +138,8 @@ html, body {
     }
 }
 
-/* Mobile: stacked cards (no table, no horizontal scroll) */
-@media (max-width: 767px) {
+/* Mobile: stacked cards (Ticket Title, Status, Created, Assigned — no horizontal scroll) */
+@media (max-width: 768px) {
     .admin-tickets-table-wrap,
     .user-tickets-table-wrap {
         overflow: visible;
@@ -196,11 +196,44 @@ html, body {
     .admin-tickets-table td:nth-child(2),
     .user-tickets-table td:nth-child(2) { order: 2; }
     .admin-tickets-table td:nth-child(3),
-    .user-tickets-table td:nth-child(3) { order: 4; }
+    .user-tickets-table td:nth-child(3) {
+        order: 3;
+    }
+    .admin-tickets-table td:nth-child(3)::before,
+    .user-tickets-table td:nth-child(3)::before {
+        content: "Created: ";
+        font-weight: 600;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--text-muted);
+    }
     .admin-tickets-table td:nth-child(4),
-    .user-tickets-table td:nth-child(4) { order: 5; }
+    .user-tickets-table td:nth-child(4) {
+        order: 5;
+    }
+    .admin-tickets-table td:nth-child(4)::before,
+    .user-tickets-table td:nth-child(4)::before {
+        content: "Updated: ";
+        font-weight: 600;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--text-muted);
+    }
     .admin-tickets-table td:nth-child(5),
-    .user-tickets-table td:nth-child(5) { order: 3; }
+    .user-tickets-table td:nth-child(5) {
+        order: 4;
+    }
+    .admin-tickets-table td:nth-child(5)::before,
+    .user-tickets-table td:nth-child(5)::before {
+        content: "Assigned: ";
+        font-weight: 600;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--text-muted);
+    }
     .admin-tickets-table .admin-ticket-link,
     .user-tickets-table .user-ticket-title {
         font-size: 15px;
@@ -213,7 +246,7 @@ html, body {
 }
 
 /* Ticket filters mobile */
-@media (max-width: 767px) {
+@media (max-width: 768px) {
     .admin-page .card-header,
     .card-header {
         flex-direction: column;
@@ -237,7 +270,7 @@ html, body {
    4. TICKET DETAIL VIEW — Mobile
    ===================================================== */
 
-@media (max-width: 767px) {
+@media (max-width: 768px) {
     .ticket-detail-page .top-nav {
         padding: 0 16px;
         height: 56px;
@@ -275,8 +308,8 @@ html, body {
     }
 }
 
-/* Chat tab — WhatsApp-style on mobile */
-@media (max-width: 767px) {
+/* Chat tab — input fixed at bottom, messages scroll above */
+@media (max-width: 768px) {
     #ticket-tab-chat {
         display: flex;
         flex-direction: column;
@@ -323,30 +356,42 @@ html, body {
 }
 
 /* =====================================================
-   5. DASHBOARD — Mobile
+   5. DASHBOARD — Mobile (vertical stack, full-width charts)
    ===================================================== */
+
+@media (max-width: 768px) {
+    .dashboard-summary-cards.stats-grid,
+    .stats-grid {
+        grid-template-columns: 1fr;
+        gap: 12px;
+    }
+    .stat-card,
+    .stat-card-sm {
+        padding: 14px 16px;
+    }
+    .stat-value { font-size: 22px; }
+    .stat-label { font-size: 12px; }
+}
 
 @media (max-width: 991px) {
     .dashboard-charts {
         grid-template-columns: 1fr;
     }
+    .dashboard-chart-card .card-body {
+        min-height: 200px;
+    }
+    .dashboard-knowledge-widgets {
+        grid-template-columns: 1fr;
+    }
 }
 
 @media (max-width: 576px) {
-    .dashboard-summary-cards.stats-grid,
-    .stats-grid {
-        grid-template-columns: repeat(2, 1fr);
-        gap: 12px;
-    }
     .stat-card,
     .stat-card-sm {
         padding: 14px 12px;
     }
     .stat-value { font-size: 22px; }
     .stat-label { font-size: 11px; }
-    .dashboard-chart-card .card-body {
-        min-height: 200px;
-    }
 }
 
 /* =====================================================
@@ -387,7 +432,7 @@ html, body {
 }
 
 /* =====================================================
-   8. USER MANAGEMENT — Mobile card layout (no horizontal scroll)
+   8. USER MANAGEMENT — Mobile card layout, expandable actions
    ===================================================== */
 
 @media (max-width: 768px) {
@@ -396,22 +441,26 @@ html, body {
         min-width: 0;
     }
 
-    #user-mgmt-table-wrap .data-table {
+    #user-mgmt-table-wrap .data-table,
+    #user-mgmt-table-wrap .user-mgmt-table {
         display: block;
         width: 100%;
     }
 
-    #user-mgmt-table-wrap .data-table thead {
+    #user-mgmt-table-wrap .data-table thead,
+    #user-mgmt-table-wrap .user-mgmt-table thead {
         display: none;
     }
 
-    #user-mgmt-table-wrap .data-table tbody {
+    #user-mgmt-table-wrap .data-table tbody,
+    #user-mgmt-table-wrap .user-mgmt-table tbody {
         display: flex;
         flex-direction: column;
         gap: 12px;
     }
 
-    #user-mgmt-table-wrap .data-table tbody tr {
+    #user-mgmt-table-wrap .data-table tbody tr,
+    #user-mgmt-table-wrap .user-mgmt-table tbody tr.user-mgmt-row {
         display: flex;
         flex-direction: column;
         padding: 16px;
@@ -419,33 +468,49 @@ html, body {
         border-radius: 12px;
         box-shadow: var(--shadow-sm);
         border: 1px solid var(--border-subtle);
-        gap: 0;
+        gap: 8px;
+        cursor: pointer;
+        transition: box-shadow 0.2s, border-color 0.2s;
     }
 
-    #user-mgmt-table-wrap .data-table tbody td {
+    #user-mgmt-table-wrap .user-mgmt-table tbody tr.user-mgmt-row:hover {
+        border-color: var(--brand-start);
+    }
+
+    #user-mgmt-table-wrap .data-table tbody td,
+    #user-mgmt-table-wrap .user-mgmt-table tbody td {
         display: block;
-        padding: 6px 0;
+        padding: 4px 0;
         border: none;
         width: 100%;
         box-sizing: border-box;
     }
 
-    #user-mgmt-table-wrap .data-table tbody td::before {
-        content: attr(data-label);
-        font-weight: 600;
-        font-size: 11px;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
-        color: var(--text-muted);
-        display: block;
-        margin-bottom: 4px;
+    #user-mgmt-table-wrap .user-mgmt-table tbody td.user-mgmt-actions-cell {
+        padding: 0;
+        max-height: 0;
+        overflow: hidden;
+        transition: max-height 0.25s ease, padding 0.25s ease;
     }
 
-    #user-mgmt-table-wrap .data-table tbody td:nth-child(1)::before { content: "Name"; }
-    #user-mgmt-table-wrap .data-table tbody td:nth-child(2)::before { content: "Email"; }
-    #user-mgmt-table-wrap .data-table tbody td:nth-child(3)::before { content: "Role"; }
-    #user-mgmt-table-wrap .data-table tbody td:nth-child(4)::before { content: "Status"; }
-    #user-mgmt-table-wrap .data-table tbody td:nth-child(5)::before { content: "Actions"; }
+    #user-mgmt-table-wrap .user-mgmt-table tbody tr.user-mgmt-row.actions-expanded td.user-mgmt-actions-cell {
+        max-height: 200px;
+        padding-top: 12px;
+        margin-top: 8px;
+        border-top: 1px solid var(--border-subtle);
+    }
+
+    #user-mgmt-table-wrap .user-mgmt-table tbody td.user-mgmt-actions-cell .user-mgmt-actions-inner {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    #user-mgmt-table-wrap .user-mgmt-table tbody td.user-mgmt-actions-cell .btn {
+        width: 100%;
+        min-height: 44px;
+        justify-content: center;
+    }
 
     #user-mgmt-table-wrap .data-table tbody td:nth-child(5) {
         margin-top: 8px;
@@ -461,15 +526,19 @@ html, body {
         min-height: 44px;
         justify-content: center;
     }
-
-    #user-mgmt-table-wrap .data-table tbody td:nth-child(5)::before {
-        margin-bottom: 8px;
-    }
 }
 
 /* =====================================================
-   9. GENERAL — No overflow, clean typography
+   9. GENERAL — No overflow, 16px safe padding, touch targets
    ===================================================== */
+
+/* Global: prevent horizontal overflow */
+html, body {
+    max-width: 100vw;
+}
+.admin-main, .container, .card-body {
+    max-width: 100%;
+}
 
 @media (max-width: 768px) {
     .admin-page-header h1 {
@@ -478,4 +547,23 @@ html, body {
     .card-body {
         padding: 16px;
     }
+    .admin-main {
+        padding-left: 16px;
+        padding-right: 16px;
+    }
+    .container {
+        padding-left: 16px;
+        padding-right: 16px;
+    }
+
+    /* Ensure clickable elements meet 44px min touch target */
+    .btn:not(.btn-sm),
+    .tab-btn,
+    .sidebar-link,
+    .stat-card,
+    .activity-log-card,
+    .user-mgmt-row {
+        min-height: 44px;
+    }
+    .tab-btn { min-height: 44px; }
 }

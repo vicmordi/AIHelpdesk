@@ -200,31 +200,42 @@ async function loadUserManagementPage() {
             return;
         }
         wrap.innerHTML = `
-            <table class="data-table">
+            <table class="data-table user-mgmt-table">
                 ${columns}
                 <tbody>
                     ${users.map((u) => `
-                        <tr>
-                            <td>${escapeHtml(u.full_name || u.name || u.email || "")}</td>
-                            <td>${escapeHtml(u.email || "")}</td>
-                            <td><span class="badge ${u.role === "super_admin" ? "badge-warning" : u.role === "support_admin" ? "badge-info" : "badge-neutral"}">${u.role.replace("_", " ")}</span></td>
-                            <td>${u.status === "disabled" ? "<span class=\"badge badge-danger\">Disabled</span>" : "Active"}</td>
-                            <td>
+                        <tr class="user-mgmt-row" data-uid="${escapeHtml(u.uid || "")}">
+                            <td data-label="Name">${escapeHtml(u.full_name || u.name || u.email || "")}</td>
+                            <td data-label="Email">${escapeHtml(u.email || "")}</td>
+                            <td data-label="Role"><span class="badge ${u.role === "super_admin" ? "badge-warning" : u.role === "support_admin" ? "badge-info" : "badge-neutral"}">${u.role.replace("_", " ")}</span></td>
+                            <td data-label="Status">${u.status === "disabled" ? "<span class=\"badge badge-danger\">Disabled</span>" : "Active"}</td>
+                            <td data-label="Actions" class="user-mgmt-actions-cell">
                                 ${u.uid !== currentUser?.uid && u.role !== "super_admin" ? `
-                                    ${u.role === "support_admin" ? `<button type="button" class="btn btn-small btn-secondary user-reset-pwd" data-uid="${u.uid}">Reset Password</button>` : ""}
-                                    ${u.status === "disabled" ? `<button type="button" class="btn btn-small btn-secondary user-enable" data-uid="${u.uid}">Enable</button>` : `<button type="button" class="btn btn-small btn-secondary user-disable" data-uid="${u.uid}">Disable</button>`}
-                                    ${u.role === "support_admin" ? `<button type="button" class="btn btn-small btn-danger user-delete" data-uid="${u.uid}">Delete</button>` : ""}
-                                ` : "-"}
+                                    <div class="user-mgmt-actions-inner">
+                                        ${u.role === "support_admin" ? `<button type="button" class="btn btn-small btn-secondary user-reset-pwd" data-uid="${u.uid}">Reset Password</button>` : ""}
+                                        ${u.status === "disabled" ? `<button type="button" class="btn btn-small btn-secondary user-enable" data-uid="${u.uid}">Enable</button>` : `<button type="button" class="btn btn-small btn-secondary user-disable" data-uid="${u.uid}">Disable</button>`}
+                                        ${u.role === "support_admin" ? `<button type="button" class="btn btn-small btn-danger user-delete" data-uid="${u.uid}">Delete</button>` : ""}
+                                    </div>
+                                ` : "<span>-</span>"}
                             </td>
                         </tr>
                     `).join("")}
                 </tbody>
             </table>
         `;
-        wrap.querySelectorAll(".user-reset-pwd").forEach((btn) => btn.addEventListener("click", () => resetSupportAdminPassword(btn.dataset.uid)));
-        wrap.querySelectorAll(".user-disable").forEach((btn) => btn.addEventListener("click", () => disableSupportAdmin(btn.dataset.uid)));
-        wrap.querySelectorAll(".user-enable").forEach((btn) => btn.addEventListener("click", () => enableSupportAdmin(btn.dataset.uid)));
-        wrap.querySelectorAll(".user-delete").forEach((btn) => btn.addEventListener("click", () => deleteSupportAdmin(btn.dataset.uid)));
+        wrap.querySelectorAll(".user-reset-pwd").forEach((btn) => { btn.addEventListener("click", (e) => { e.stopPropagation(); resetSupportAdminPassword(btn.dataset.uid); }); });
+        wrap.querySelectorAll(".user-disable").forEach((btn) => { btn.addEventListener("click", (e) => { e.stopPropagation(); disableSupportAdmin(btn.dataset.uid); }); });
+        wrap.querySelectorAll(".user-enable").forEach((btn) => { btn.addEventListener("click", (e) => { e.stopPropagation(); enableSupportAdmin(btn.dataset.uid); }); });
+        wrap.querySelectorAll(".user-delete").forEach((btn) => { btn.addEventListener("click", (e) => { e.stopPropagation(); deleteSupportAdmin(btn.dataset.uid); }); });
+        wrap.querySelectorAll(".user-mgmt-row .user-mgmt-actions-cell").forEach((cell) => {
+            const row = cell.closest("tr");
+            if (!row) return;
+            row.addEventListener("click", () => {
+                if (window.innerWidth <= 768) {
+                    row.classList.toggle("actions-expanded");
+                }
+            });
+        });
     } catch (e) {
         wrap.innerHTML = `<p class="error-message">${e.message || "Failed to load"}</p>`;
     }
@@ -397,56 +408,100 @@ async function loadActivityLogsPage() {
             wrap.innerHTML = "<p class=\"empty-state\">No activity logs match the filters.</p>";
             return;
         }
-        wrap.innerHTML = `
-            <table class="data-table activity-logs-table">
-                <thead>
-                    <tr>
-                        <th>Time</th>
-                        <th>User</th>
-                        <th>Role</th>
-                        <th>Action</th>
-                        <th>Page</th>
-                        <th>IP</th>
-                        <th>Status</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    ${logs.map((r) => {
-                        const meta = r.metadata || {};
-                        const page = meta.page || "—";
-                        const ipVal = meta.ip_address || "—";
-                        const statusClass = getActivityLogStatusBadgeClass(r.action_type);
-                        const statusLabel = r.action_type === "login_failed" ? "Failed" : r.action_type === "brute_force_attempt" ? "Brute force" : r.action_type === "login_success" || r.action_type === "login" ? "Success" : "Activity";
-                        const details = [
-                            r.action_label ? `Label: ${escapeHtml(r.action_label)}` : "",
-                            meta.ticket_id ? `Ticket: ${escapeHtml(meta.ticket_id)}` : "",
-                            meta.clicked_button ? `Button: ${escapeHtml(meta.clicked_button)}` : "",
-                            meta.attempted_email ? `Attempted: ${escapeHtml(meta.attempted_email)}` : "",
-                        ].filter(Boolean).join(" · ");
-                        return `
-                        <tr class="activity-log-row" data-log-id="${escapeHtml(r.id || "")}" role="button" tabindex="0">
-                            <td>${formatActivityTimestamp(r.created_at)}</td>
-                            <td>${escapeHtml(r.user_name || (r.user_id || "").slice(0, 8) || "—")}</td>
-                            <td><span class="badge badge-neutral">${escapeHtml(r.user_role || "—")}</span></td>
-                            <td>${escapeHtml(r.action_type || "")}</td>
-                            <td>${escapeHtml(page)}</td>
-                            <td>${escapeHtml(ipVal)}</td>
-                            <td><span class="badge ${statusClass}">${statusLabel}</span></td>
-                        </tr>
-                        <tr class="activity-log-detail-row" data-log-id="${escapeHtml(r.id || "")}" style="display: none;">
-                            <td colspan="7" class="activity-log-detail-cell">${details ? escapeHtml(details) : "—"}</td>
-                        </tr>`;
-                    }).join("")}
-                </tbody>
-            </table>
-        `;
-        wrap.querySelectorAll(".activity-log-row").forEach((row) => {
-            row.addEventListener("click", () => {
-                const id = row.dataset.logId;
-                const detailRow = wrap.querySelector(`.activity-log-detail-row[data-log-id="${id}"]`);
-                if (detailRow) detailRow.style.display = detailRow.style.display === "none" ? "table-row" : "none";
+        const isMobile = window.innerWidth <= 768;
+        if (isMobile) {
+            wrap.innerHTML = `<div class="activity-logs-cards">${logs.map((r) => {
+                const meta = r.metadata || {};
+                const page = meta.page || "—";
+                const ipVal = meta.ip_address || "—";
+                const device = meta.device || meta.user_agent ? (meta.device || (meta.user_agent || "").slice(0, 40) + (meta.user_agent && meta.user_agent.length > 40 ? "…" : "")) : "—";
+                const statusClass = getActivityLogStatusBadgeClass(r.action_type);
+                const statusLabel = r.action_type === "login_failed" ? "Failed" : r.action_type === "brute_force_attempt" ? "Brute force" : r.action_type === "login_success" || r.action_type === "login" ? "Success" : "Activity";
+                const details = [
+                    r.action_label ? `Label: ${escapeHtml(r.action_label)}` : "",
+                    meta.ticket_id ? `Ticket: ${escapeHtml(meta.ticket_id)}` : "",
+                    meta.clicked_button ? `Button: ${escapeHtml(meta.clicked_button)}` : "",
+                    meta.attempted_email ? `Attempted: ${escapeHtml(meta.attempted_email)}` : "",
+                ].filter(Boolean).join(" · ");
+                return `
+                <div class="activity-log-card" data-log-id="${escapeHtml(r.id || "")}" role="button" tabindex="0">
+                    <div class="activity-log-card-main">
+                        <div class="activity-log-card-time">${formatActivityTimestamp(r.created_at)}</div>
+                        <div class="activity-log-card-user">${escapeHtml(r.user_name || (r.user_id || "").slice(0, 8) || "—")} <span class="badge badge-neutral">${escapeHtml(r.user_role || "—")}</span></div>
+                        <div class="activity-log-card-action"><span class="badge ${statusClass}">${statusLabel}</span> — ${escapeHtml(r.action_type || "")}</div>
+                        <div class="activity-log-card-expandable">
+                            <div class="activity-log-card-meta">
+                                <div>Page: ${escapeHtml(page)}</div>
+                                <div>IP: ${escapeHtml(ipVal)}</div>
+                                <div>Device: ${escapeHtml(device)}</div>
+                            </div>
+                            ${details ? `<div class="activity-log-card-details">${escapeHtml(details)}</div>` : ""}
+                        </div>
+                        <span class="activity-log-card-chevron" aria-hidden="true">▼</span>
+                    </div>
+                </div>`;
+            }).join("")}</div>`;
+            wrap.querySelectorAll(".activity-log-card").forEach((card) => {
+                card.addEventListener("click", () => {
+                    const expandable = card.querySelector(".activity-log-card-expandable");
+                    const chevron = card.querySelector(".activity-log-card-chevron");
+                    const expanded = card.classList.toggle("expanded");
+                    if (expandable) expandable.style.display = expanded ? "block" : "none";
+                    if (chevron) chevron.style.transform = expanded ? "rotate(180deg)" : "";
+                });
             });
-        });
+        } else {
+            wrap.innerHTML = `
+                <table class="data-table activity-logs-table">
+                    <thead>
+                        <tr>
+                            <th>Time</th>
+                            <th>User</th>
+                            <th>Role</th>
+                            <th>Action</th>
+                            <th>Page</th>
+                            <th>IP</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${logs.map((r) => {
+                            const meta = r.metadata || {};
+                            const page = meta.page || "—";
+                            const ipVal = meta.ip_address || "—";
+                            const statusClass = getActivityLogStatusBadgeClass(r.action_type);
+                            const statusLabel = r.action_type === "login_failed" ? "Failed" : r.action_type === "brute_force_attempt" ? "Brute force" : r.action_type === "login_success" || r.action_type === "login" ? "Success" : "Activity";
+                            const details = [
+                                r.action_label ? `Label: ${escapeHtml(r.action_label)}` : "",
+                                meta.ticket_id ? `Ticket: ${escapeHtml(meta.ticket_id)}` : "",
+                                meta.clicked_button ? `Button: ${escapeHtml(meta.clicked_button)}` : "",
+                                meta.attempted_email ? `Attempted: ${escapeHtml(meta.attempted_email)}` : "",
+                            ].filter(Boolean).join(" · ");
+                            return `
+                            <tr class="activity-log-row" data-log-id="${escapeHtml(r.id || "")}" role="button" tabindex="0">
+                                <td>${formatActivityTimestamp(r.created_at)}</td>
+                                <td>${escapeHtml(r.user_name || (r.user_id || "").slice(0, 8) || "—")}</td>
+                                <td><span class="badge badge-neutral">${escapeHtml(r.user_role || "—")}</span></td>
+                                <td>${escapeHtml(r.action_type || "")}</td>
+                                <td>${escapeHtml(page)}</td>
+                                <td>${escapeHtml(ipVal)}</td>
+                                <td><span class="badge ${statusClass}">${statusLabel}</span></td>
+                            </tr>
+                            <tr class="activity-log-detail-row" data-log-id="${escapeHtml(r.id || "")}" style="display: none;">
+                                <td colspan="7" class="activity-log-detail-cell">${details ? escapeHtml(details) : "—"}</td>
+                            </tr>`;
+                        }).join("")}
+                    </tbody>
+                </table>
+            `;
+            wrap.querySelectorAll(".activity-log-row").forEach((row) => {
+                row.addEventListener("click", () => {
+                    const id = row.dataset.logId;
+                    const detailRow = wrap.querySelector(`.activity-log-detail-row[data-log-id="${id}"]`);
+                    if (detailRow) detailRow.style.display = detailRow.style.display === "none" ? "table-row" : "none";
+                });
+            });
+        }
     } catch (e) {
         wrap.innerHTML = `<p class="error-message">${e.message || "Failed to load activity logs."}</p>`;
         lastActivityLogs = [];
@@ -987,8 +1042,29 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const alApply = document.getElementById("al-apply");
     const alExport = document.getElementById("al-export-csv");
+    const alFilterToggle = document.getElementById("al-filter-toggle");
     if (alApply) alApply.addEventListener("click", () => loadActivityLogsPage());
     if (alExport) alExport.addEventListener("click", () => exportActivityLogsCSV());
+    if (alFilterToggle) {
+        alFilterToggle.addEventListener("click", () => {
+            const panel = document.getElementById("activity-logs-filters-panel");
+            const expanded = alFilterToggle.getAttribute("aria-expanded") === "true";
+            alFilterToggle.setAttribute("aria-expanded", !expanded);
+            if (panel) panel.classList.toggle("mobile-expanded", !expanded);
+        });
+    }
+    let alResizeLastWidth = window.innerWidth;
+    let alResizeTimer;
+    window.addEventListener("resize", () => {
+        clearTimeout(alResizeTimer);
+        alResizeTimer = setTimeout(() => {
+            const w = window.innerWidth;
+            const crossed = (alResizeLastWidth <= 768) !== (w <= 768);
+            alResizeLastWidth = w;
+            const page = (window.location.hash || "#dashboard").replace("#", "") || "dashboard";
+            if (crossed && page === "activity-logs" && lastActivityLogs.length > 0) loadActivityLogsPage();
+        }, 200);
+    });
     const alDateFrom = document.getElementById("al-date-from");
     const alDateTo = document.getElementById("al-date-to");
     if (alDateFrom && !alDateFrom.value) {

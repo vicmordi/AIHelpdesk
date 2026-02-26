@@ -523,6 +523,9 @@
 .admin-ticket-status-open { background: var(--info-bg); color: #67e8f9; }
 
 /* —— Activity Logs page: filters layout and status badges —— */
+.activity-logs-filter-toggle {
+    display: none;
+}
 .activity-logs-filters {
     display: flex;
     flex-wrap: wrap;
@@ -557,6 +560,106 @@
     color: var(--text-secondary);
     background: var(--bg-secondary);
     border-bottom: 1px solid var(--border-subtle);
+}
+
+/* Activity Logs mobile: filter drawer + card layout */
+@media (max-width: 768px) {
+    .activity-logs-filter-toggle {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 100%;
+        min-height: 44px;
+        padding: 12px 16px;
+        margin-bottom: 12px;
+        background: var(--bg-secondary);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-sm);
+        color: var(--text-primary);
+        font-size: 14px;
+        font-weight: 500;
+        cursor: pointer;
+    }
+    .activity-logs-filters {
+        display: none;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 12px;
+        padding-top: 12px;
+        border-top: 1px solid var(--border-subtle);
+    }
+    .activity-logs-filters.mobile-expanded {
+        display: flex;
+    }
+    .activity-logs-filters label {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    .activity-logs-filters .input {
+        width: 100%;
+        min-height: 44px;
+        box-sizing: border-box;
+    }
+    .activity-logs-filters .btn {
+        min-height: 44px;
+    }
+
+    /* Activity log cards (mobile only) */
+    .activity-logs-cards {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+    }
+    .activity-log-card {
+        background: var(--surface-card);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius);
+        padding: 16px;
+        cursor: pointer;
+        transition: box-shadow 0.2s, border-color 0.2s;
+    }
+    .activity-log-card:hover {
+        border-color: var(--brand-start);
+    }
+    .activity-log-card.expanded {
+        border-color: var(--brand-start);
+    }
+    .activity-log-card-time {
+        font-size: 12px;
+        color: var(--text-muted);
+        margin-bottom: 8px;
+    }
+    .activity-log-card-user {
+        font-size: 15px;
+        font-weight: 600;
+        color: var(--text-primary);
+        margin-bottom: 6px;
+    }
+    .activity-log-card-user .badge {
+        margin-left: 8px;
+    }
+    .activity-log-card-action {
+        font-size: 14px;
+        color: var(--text-secondary);
+        margin-bottom: 8px;
+    }
+    .activity-log-card-expandable {
+        display: none;
+        margin-top: 12px;
+        padding-top: 12px;
+        border-top: 1px solid var(--border-subtle);
+        font-size: 13px;
+        color: var(--text-secondary);
+    }
+    .activity-log-card-expandable > div {
+        margin-bottom: 4px;
+    }
+    .activity-log-card-chevron {
+        display: inline-block;
+        font-size: 10px;
+        color: var(--text-muted);
+        transition: transform 0.25s ease;
+    }
 }
 /* Activity log status badges: red=failed, orange=brute, green=success, blue=normal */
 .badge-activity-failed {

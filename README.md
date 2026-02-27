@@ -46,7 +46,7 @@ CI/CD:
 
 ---
 
-##Multi-Tenant Organization Model
+Multi-Tenant Organization Model
 
 Each organization is fully isolated.
 
@@ -59,7 +59,7 @@ No organization can access another organization’s data.
 
 ---
 
-##Role-Based Access Control (RBAC)
+Role-Based Access Control (RBAC)
 
 ### 👑 Super Admin
 - Creates organization
@@ -85,7 +85,7 @@ No organization can access another organization’s data.
 
 ---
 
-##AI-Powered Knowledge Base Engine
+AI-Powered Knowledge Base Engine
 
 The system does NOT rely on generic AI responses.
 
@@ -102,11 +102,11 @@ All answers remain organization-scoped.
 
 ---
 
-##Automatic Knowledge Improvement System
+Automatic Knowledge Improvement System
 
 One of the most powerful features.
 
-### How It Works:
+How It Works:
 
 1. Tickets are escalated.
 2. Support resolves them.
@@ -128,7 +128,7 @@ This transforms human resolution into reusable automation.
 
 ---
 
-##Ticket Lifecycle Management
+Ticket Lifecycle Management
 
 Ticket statuses:
 
@@ -151,7 +151,7 @@ Workflow:
 
 ---
 
-##Real-Time Chat System
+Real-Time Chat System
 
 - User ↔ AI
 - User ↔ Support Admin
@@ -162,7 +162,7 @@ Workflow:
 
 ---
 
-##Organization Activity Monitoring
+Organization Activity Monitoring
 
 Super Admin can monitor:
 
@@ -184,7 +184,7 @@ This provides internal audit-level visibility.
 
 ---
 
-##Analytics Dashboard
+Analytics Dashboard
 
 Includes:
 
@@ -195,7 +195,7 @@ Includes:
 
 ---
 
-##CI/CD & Dev Environment
+CI/CD & Dev Environment
 
 This project uses branch-based deployment strategy.
 

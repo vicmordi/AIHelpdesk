@@ -50,7 +50,7 @@ function getSenderLabel(msg, ticket, isAdminView) {
         document.querySelector('[data-tab="my-tickets"]')?.click();
         document.getElementById("messages-icon-btn")?.addEventListener("click", () => openMessagesModal());
         fetchUnreadCount();
-        window._unreadPoll = setInterval(fetchUnreadCount, 10000);
+        window._unreadPoll = setInterval(fetchUnreadCount, 12000);
     } catch (err) {
         console.error("Error loading user data:", err);
         showError("Failed to load user data");
@@ -191,6 +191,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const logoutBtn = document.getElementById("logout-btn");
     if (logoutBtn) {
         logoutBtn.addEventListener("click", () => {
+            if (window._unreadPoll) {
+                clearInterval(window._unreadPoll);
+                window._unreadPoll = null;
+            }
             clearToken();
             window.location.href = "index.html";
         });

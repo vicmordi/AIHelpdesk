@@ -871,13 +871,20 @@ async function rejectKnowledgeSuggestion(id) {
         window._adminUnreadPoll = setInterval(() => {
             fetchUnreadCount();
             if (userData.role === "super_admin") loadKnowledgeAnalytics();
-        }, 10000);
+        }, 12000);
 
         const sidebarEl = document.getElementById("admin-sidebar");
         if (sidebarEl) {
             renderSidebar(sidebarEl, {
                 currentUser: userData,
-                onLogout: () => { clearToken(); window.location.href = "index.html"; },
+                onLogout: () => {
+                    if (window._adminUnreadPoll) {
+                        clearInterval(window._adminUnreadPoll);
+                        window._adminUnreadPoll = null;
+                    }
+                    clearToken();
+                    window.location.href = "index.html";
+                },
                 onOpenMessages: () => openMessagesModal(),
             });
         }
@@ -1110,6 +1117,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const logoutBtn = document.getElementById("logout-btn");
     if (logoutBtn) {
         logoutBtn.addEventListener("click", () => {
+            if (window._adminUnreadPoll) {
+                clearInterval(window._adminUnreadPoll);
+                window._adminUnreadPoll = null;
+            }
             clearToken();
             window.location.href = "index.html";
         });

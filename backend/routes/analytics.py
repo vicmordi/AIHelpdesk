@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 
 from firebase_admin import firestore
 from middleware import get_current_user, require_super_admin
+from utils import get_client_ip
 from activity_logging import (
     log_activity,
     ACTION_LOGIN,
@@ -65,28 +66,31 @@ async def post_activity(
     Log a client-initiated activity (e.g. dashboard_view, navigation, button_click).
     organization_id, user_id, user_role, user_name and created_at are set by the backend.
     Client IP is injected from request for audit.
+    Logging errors never crash the server; always returns {"ok": True} unless request is malformed.
     """
     if body.action_type not in ALLOWED_ACTION_TYPES:
         return {"ok": False, "error": "Invalid action_type"}
     org_id = current_user.get("organization_id")
     if not org_id:
         return {"ok": False, "error": "Organization required"}
-    db = get_db()
-    meta = dict(body.metadata or {})
-    client_ip = get_client_ip(request)
-    if client_ip:
+    try:
+        db = get_db()
+        meta = dict(body.metadata or {})
+        client_ip = get_client_ip(request)
         meta["ip_address"] = client_ip
-    user_name = (current_user.get("name") or current_user.get("email") or "").strip()
-    log_activity(
-        db,
-        organization_id=org_id,
-        user_id=current_user["uid"],
-        user_role=current_user.get("role") or "employee",
-        action_type=body.action_type,
-        action_label=body.action_label or body.action_type,
-        metadata=meta or None,
-        user_name=user_name,
-    )
+        user_name = (current_user.get("name") or current_user.get("email") or "").strip()
+        log_activity(
+            db,
+            organization_id=org_id,
+            user_id=current_user["uid"],
+            user_role=current_user.get("role") or "employee",
+            action_type=body.action_type,
+            action_label=body.action_label or body.action_type,
+            metadata=meta or None,
+            user_name=user_name,
+        )
+    except Exception as e:
+        logger.exception("Activity logging failed: %s", e)
     return {"ok": True}
 
 
